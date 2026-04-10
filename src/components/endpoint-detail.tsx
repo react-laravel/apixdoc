@@ -1,0 +1,762 @@
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { MethodBadge } from "@/components/method-badge";
+import { HTTP_METHODS } from "@/lib/utils";
+
+interface Param {
+  id?: string;
+  name: string;
+  type: string;
+  required: boolean;
+  location: string;
+  description: string;
+  example: string;
+}
+
+interface ResponseItem {
+  id?: string;
+  statusCode: number;
+  description: string;
+  contentType: string;
+  example: string;
+}
+
+interface EndpointData {
+  id: string;
+  name: string;
+  method: string;
+  path: string;
+  description: string;
+  parameters?: Param[];
+  requestBody?: {
+    id?: string;
+    contentType: string;
+    schema: string;
+    example: string;
+  } | null;
+  responses?: ResponseItem[];
+}
+
+interface EndpointDetailProps {
+  endpoint: EndpointData;
+  projectBaseUrl: string;
+  globalHeaders: Array<{
+    key: string;
+    value: string;
+    enabled: boolean;
+  }>;
+  globalParams: Array<{
+    name: string;
+    value: string;
+    location: string;
+    enabled: boolean;
+  }>;
+  onSave: (data: Partial<EndpointData>) => void;
+}
+
+export function EndpointDetail({
+  endpoint,
+  projectBaseUrl,
+  globalHeaders,
+  globalParams,
+  onSave,
+}: EndpointDetailProps) {
+  // Basic info
+  const [name, setName] = useState(endpoint.name);
+  const [method, setMethod] = useState(endpoint.method);
+  const [path, setPath] = useState(endpoint.path);
+  const [description, setDescription] = useState(endpoint.description);
+
+  // Params
+  const [params, setParams] = useState<Param[]>(endpoint.parameters ?? []);
+
+  // Request body
+  const [bodyContentType, setBodyContentType] = useState(
+    endpoint.requestBody?.contentType || "application/json"
+  );
+  const [bodySchema, setBodySchema] = useState(
+    endpoint.requestBody?.schema || ""
+  );
+  const [bodyExample, setBodyExample] = useState(
+    endpoint.requestBody?.example || ""
+  );
+
+  // Responses
+  const [responses, setResponses] = useState<ResponseItem[]>(
+    endpoint.responses ?? []
+  );
+
+  // Test tab state
+  const [testHeaders, setTestHeaders] = useState<
+    Array<{ key: string; value: string }>
+  >(
+    (globalHeaders ?? [])
+      .filter((h) => h.enabled)
+      .map((h) => ({ key: h.key, value: h.value }))
+  );
+  const [testQueryParams, setTestQueryParams] = useState<
+    Array<{ key: string; value: string }>
+  >(
+    [
+      ...(globalParams ?? [])
+        .filter((p) => p.enabled && p.location === "query")
+        .map((p) => ({ key: p.name, value: p.value })),
+      ...(params ?? [])
+        .filter((p) => p.location === "query")
+        .map((p) => ({ key: p.name, value: p.example })),
+    ]
+  );
+  const [testBody, setTestBody] = useState(bodyExample);
+  const [testResponse, setTestResponse] = useState<{
+    status: number;
+    headers: Record<string, string>;
+    body: string;
+    duration: number;
+  } | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  const handleSaveBasic = () => {
+    onSave({ name, method, path, description });
+  };
+
+  const handleSaveParams = () => {
+    onSave({ parameters: params });
+  };
+
+  const handleSaveBody = () => {
+    onSave({
+      requestBody: {
+        contentType: bodyContentType,
+        schema: bodySchema,
+        example: bodyExample,
+      },
+    });
+  };
+
+  const handleSaveResponses = () => {
+    onSave({ responses });
+  };
+
+  const addParam = () => {
+    setParams((prev) => [
+      ...prev,
+      {
+        name: "",
+        type: "string",
+        required: false,
+        location: "query",
+        description: "",
+        example: "",
+      },
+    ]);
+  };
+
+  const updateParam = (index: number, field: keyof Param, value: string | boolean) => {
+    setParams((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, [field]: value } : p))
+    );
+  };
+
+  const removeParam = (index: number) => {
+    setParams((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addResponse = () => {
+    setResponses((prev) => [
+      ...prev,
+      { statusCode: 200, description: "", contentType: "application/json", example: "" },
+    ]);
+  };
+
+  const updateResponse = (
+    index: number,
+    field: keyof ResponseItem,
+    value: string | number
+  ) => {
+    setResponses((prev) =>
+      prev.map((r, i) => (i === index ? { ...r, [field]: value } : r))
+    );
+  };
+
+  const removeResponse = (index: number) => {
+    setResponses((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addTestHeader = () => {
+    setTestHeaders((prev) => [...prev, { key: "", value: "" }]);
+  };
+
+  const updateTestHeader = (index: number, field: "key" | "value", value: string) => {
+    setTestHeaders((prev) =>
+      prev.map((h, i) => (i === index ? { ...h, [field]: value } : h))
+    );
+  };
+
+  const removeTestHeader = (index: number) => {
+    setTestHeaders((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const addTestQueryParam = () => {
+    setTestQueryParams((prev) => [...prev, { key: "", value: "" }]);
+  };
+
+  const updateTestQueryParam = (index: number, field: "key" | "value", value: string) => {
+    setTestQueryParams((prev) =>
+      prev.map((p, i) => (i === index ? { ...p, [field]: value } : p))
+    );
+  };
+
+  const removeTestQueryParam = (index: number) => {
+    setTestQueryParams((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleSendRequest = async () => {
+    setTestLoading(true);
+    setTestResponse(null);
+    setTestError(null);
+
+    const queryString = testQueryParams
+      .filter((p) => p.key)
+      .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
+      .join("&");
+
+    const fullUrl = `${projectBaseUrl}${path}${queryString ? `?${queryString}` : ""}`;
+
+    if (!projectBaseUrl) {
+      setTestError("请先在项目设置中配置 Base URL");
+      setTestLoading(false);
+      return;
+    }
+
+    const headersObj: Record<string, string> = {};
+    for (const h of testHeaders) {
+      if (h.key) headersObj[h.key] = h.value;
+    }
+
+    try {
+      const res = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: fullUrl,
+          method,
+          headers: headersObj,
+          body: ["POST", "PUT", "PATCH"].includes(method) ? testBody : undefined,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setTestResponse(json.data);
+      } else {
+        setTestError(json.error || "请求失败");
+      }
+    } catch (err) {
+      setTestError(
+        err instanceof Error ? err.message : "网络错误，请检查请求地址"
+      );
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const hasBody = ["POST", "PUT", "PATCH"].includes(method.toUpperCase());
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="mb-4 flex items-center gap-3">
+        <MethodBadge method={method} />
+        <span className="font-mono text-sm text-zinc-600 dark:text-zinc-400">
+          {path}
+        </span>
+        <span className="text-lg font-semibold">{name}</span>
+      </div>
+
+      <Tabs defaultValue="basic">
+        <TabsList>
+          <TabsTrigger value="basic">基本信息</TabsTrigger>
+          <TabsTrigger value="params">请求参数</TabsTrigger>
+          <TabsTrigger value="body">请求体</TabsTrigger>
+          <TabsTrigger value="responses">响应</TabsTrigger>
+          <TabsTrigger value="test">在线测试</TabsTrigger>
+        </TabsList>
+
+        {/* Basic Info */}
+        <TabsContent value="basic" className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium">
+                请求方法
+              </label>
+              <Select value={method} onValueChange={setMethod}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HTTP_METHODS.map((m) => (
+                    <SelectItem key={m} value={m}>
+                      {m}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">路径</label>
+              <Input
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder="/api/resource"
+                className="font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">名称</label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">描述</label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <Button onClick={handleSaveBasic}>保存</Button>
+        </TabsContent>
+
+        {/* Params */}
+        <TabsContent value="params" className="space-y-4">
+          <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
+                  <th className="px-3 py-2 text-left font-medium">名称</th>
+                  <th className="px-3 py-2 text-left font-medium">类型</th>
+                  <th className="px-3 py-2 text-left font-medium">必填</th>
+                  <th className="px-3 py-2 text-left font-medium">位置</th>
+                  <th className="px-3 py-2 text-left font-medium">描述</th>
+                  <th className="px-3 py-2 text-left font-medium">示例</th>
+                  <th className="px-3 py-2 text-right font-medium">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {params.map((p, i) => (
+                  <tr
+                    key={i}
+                    className="border-b border-zinc-100 dark:border-zinc-800"
+                  >
+                    <td className="px-3 py-2">
+                      <Input
+                        value={p.name}
+                        onChange={(e) => updateParam(i, "name", e.target.value)}
+                        className="h-8 text-xs"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select
+                        value={p.type}
+                        onValueChange={(v) => updateParam(i, "type", v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="string">string</SelectItem>
+                          <SelectItem value="number">number</SelectItem>
+                          <SelectItem value="integer">integer</SelectItem>
+                          <SelectItem value="boolean">boolean</SelectItem>
+                          <SelectItem value="array">array</SelectItem>
+                          <SelectItem value="object">object</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={p.required}
+                        onChange={(e) =>
+                          updateParam(i, "required", e.target.checked)
+                        }
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Select
+                        value={p.location}
+                        onValueChange={(v) => updateParam(i, "location", v)}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="query">query</SelectItem>
+                          <SelectItem value="path">path</SelectItem>
+                          <SelectItem value="header">header</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        value={p.description}
+                        onChange={(e) =>
+                          updateParam(i, "description", e.target.value)
+                        }
+                        className="h-8 text-xs"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <Input
+                        value={p.example}
+                        onChange={(e) =>
+                          updateParam(i, "example", e.target.value)
+                        }
+                        className="h-8 text-xs"
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeParam(i)}
+                        className="text-xs"
+                      >
+                        删除
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={addParam}>
+              添加参数
+            </Button>
+            <Button size="sm" onClick={handleSaveParams}>
+              保存
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* Request Body */}
+        <TabsContent value="body" className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              Content-Type
+            </label>
+            <Select value={bodyContentType} onValueChange={setBodyContentType}>
+              <SelectTrigger className="w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="application/json">
+                  application/json
+                </SelectItem>
+                <SelectItem value="application/x-www-form-urlencoded">
+                  application/x-www-form-urlencoded
+                </SelectItem>
+                <SelectItem value="multipart/form-data">
+                  multipart/form-data
+                </SelectItem>
+                <SelectItem value="text/plain">text/plain</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              JSON Schema
+            </label>
+            <Textarea
+              value={bodySchema}
+              onChange={(e) => setBodySchema(e.target.value)}
+              rows={8}
+              className="font-mono text-xs"
+              placeholder='{"type": "object", "properties": {...}}'
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium">
+              请求体示例
+            </label>
+            <Textarea
+              value={bodyExample}
+              onChange={(e) => setBodyExample(e.target.value)}
+              rows={8}
+              className="font-mono text-xs"
+              placeholder='{"key": "value"}'
+            />
+          </div>
+          <Button onClick={handleSaveBody}>保存</Button>
+        </TabsContent>
+
+        {/* Responses */}
+        <TabsContent value="responses" className="space-y-4">
+          {responses.map((r, i) => (
+            <div
+              key={i}
+              className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+            >
+              <div className="flex items-center gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium">
+                    状态码
+                  </label>
+                  <Input
+                    type="number"
+                    value={r.statusCode}
+                    onChange={(e) =>
+                      updateResponse(i, "statusCode", parseInt(e.target.value) || 0)
+                    }
+                    className="h-8 w-24 text-xs"
+                  />
+                </div>
+                <div className="flex-1">
+                  <label className="mb-1 block text-xs font-medium">
+                    描述
+                  </label>
+                  <Input
+                    value={r.description}
+                    onChange={(e) =>
+                      updateResponse(i, "description", e.target.value)
+                    }
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium">
+                    Content-Type
+                  </label>
+                  <Select
+                    value={r.contentType}
+                    onValueChange={(v) => updateResponse(i, "contentType", v)}
+                  >
+                    <SelectTrigger className="h-8 w-48 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="application/json">
+                        application/json
+                      </SelectItem>
+                      <SelectItem value="text/plain">text/plain</SelectItem>
+                      <SelectItem value="text/html">text/html</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="mt-5"
+                  onClick={() => removeResponse(i)}
+                >
+                  删除
+                </Button>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium">
+                  响应示例
+                </label>
+                <Textarea
+                  value={r.example}
+                  onChange={(e) => updateResponse(i, "example", e.target.value)}
+                  rows={4}
+                  className="font-mono text-xs"
+                />
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={addResponse}>
+              添加响应
+            </Button>
+            <Button size="sm" onClick={handleSaveResponses}>
+              保存
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* Test */}
+        <TabsContent value="test" className="space-y-6">
+          {/* URL */}
+          <div>
+            <label className="mb-1 block text-sm font-medium">请求 URL</label>
+            <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <Badge variant="secondary" className="text-xs">
+                {method}
+              </Badge>
+              <span className="text-zinc-600 dark:text-zinc-400">
+                {projectBaseUrl}
+                {path}
+              </span>
+            </div>
+          </div>
+
+          {/* Headers */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-sm font-medium">请求头</label>
+              <Button variant="outline" size="sm" onClick={addTestHeader}>
+                添加
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {testHeaders.map((h, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    placeholder="Key"
+                    value={h.key}
+                    onChange={(e) => updateTestHeader(i, "key", e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                  <Input
+                    placeholder="Value"
+                    value={h.value}
+                    onChange={(e) =>
+                      updateTestHeader(i, "value", e.target.value)
+                    }
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTestHeader(i)}
+                    className="text-xs"
+                  >
+                    删除
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Query Params */}
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-sm font-medium">查询参数</label>
+              <Button variant="outline" size="sm" onClick={addTestQueryParam}>
+                添加
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {testQueryParams.map((p, i) => (
+                <div key={i} className="flex gap-2">
+                  <Input
+                    placeholder="Key"
+                    value={p.key}
+                    onChange={(e) =>
+                      updateTestQueryParam(i, "key", e.target.value)
+                    }
+                    className="h-8 text-xs"
+                  />
+                  <Input
+                    placeholder="Value"
+                    value={p.value}
+                    onChange={(e) =>
+                      updateTestQueryParam(i, "value", e.target.value)
+                    }
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeTestQueryParam(i)}
+                    className="text-xs"
+                  >
+                    删除
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Request Body */}
+          {hasBody && (
+            <div>
+              <label className="mb-1 block text-sm font-medium">请求体</label>
+              <Textarea
+                value={testBody}
+                onChange={(e) => setTestBody(e.target.value)}
+                rows={6}
+                className="font-mono text-xs"
+                placeholder='{"key": "value"}'
+              />
+            </div>
+          )}
+
+          {/* Send Button */}
+          <Button onClick={handleSendRequest} disabled={testLoading}>
+            {testLoading ? "发送中..." : "发送请求"}
+          </Button>
+
+          {/* Error */}
+          {testError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+              {testError}
+            </div>
+          )}
+
+          {/* Response */}
+          {testResponse && (
+            <div className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+              <div className="flex items-center gap-4">
+                <Badge
+                  variant={
+                    testResponse.status >= 200 && testResponse.status < 300
+                      ? "default"
+                      : "secondary"
+                  }
+                >
+                  {testResponse.status}
+                </Badge>
+                <span className="text-sm text-zinc-500">
+                  {testResponse.duration}ms
+                </span>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-500">
+                  响应头
+                </label>
+                <pre className="max-h-32 overflow-auto rounded bg-zinc-50 p-2 font-mono text-xs dark:bg-zinc-900">
+                  {JSON.stringify(testResponse.headers, null, 2)}
+                </pre>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-zinc-500">
+                  响应体
+                </label>
+                <pre className="max-h-96 overflow-auto rounded bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-900">
+                  {(() => {
+                    try {
+                      return JSON.stringify(
+                        JSON.parse(testResponse.body),
+                        null,
+                        2
+                      );
+                    } catch {
+                      return testResponse.body;
+                    }
+                  })()}
+                </pre>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

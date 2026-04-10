@@ -1,0 +1,519 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { EndpointSidebar } from "@/components/endpoint-sidebar";
+import { EndpointDetail } from "@/components/endpoint-detail";
+import { ProjectSettings } from "@/components/project-settings";
+import { HTTP_METHODS } from "@/lib/utils";
+import { Settings } from "lucide-react";
+
+interface Folder {
+  id: string;
+  name: string;
+  parentId?: string | null;
+  endpoints?: Endpoint[];
+  children?: Folder[];
+}
+
+interface Endpoint {
+  id: string;
+  name: string;
+  method: string;
+  path: string;
+  description: string;
+  folderId: string | null;
+  parameters?: Array<{
+    id?: string;
+    name: string;
+    type: string;
+    required: boolean;
+    location: string;
+    description: string;
+    example: string;
+  }>;
+  requestBody?: {
+    id?: string;
+    contentType: string;
+    schema: string;
+    example: string;
+  } | null;
+  responses?: Array<{
+    id?: string;
+    statusCode: number;
+    description: string;
+    contentType: string;
+    example: string;
+  }>;
+}
+
+interface Project {
+  id: string;
+  name: string;
+  description: string;
+  baseUrl: string;
+  isPublic: boolean;
+  environments: Array<{
+    id?: string;
+    name: string;
+    baseUrl: string;
+    variables: string;
+  }>;
+  globalHeaders: Array<{
+    id?: string;
+    key: string;
+    value: string;
+    description: string;
+    enabled: boolean;
+  }>;
+  globalParams: Array<{
+    id?: string;
+    name: string;
+    value: string;
+    location: string;
+    description: string;
+    enabled: boolean;
+  }>;
+  folders: Folder[];
+  endpoints: Endpoint[];
+}
+
+export default function ProjectPage() {
+  const params = useParams<{ id: string }>();
+  const [project, setProject] = useState<Project | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedEndpointId, setSelectedEndpointId] = useState<string | null>(
+    null,
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  // Create folder dialog
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false);
+  const [folderName, setFolderName] = useState("");
+
+  // Create endpoint dialog
+  const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
+  const [endpointName, setEndpointName] = useState("");
+  const [endpointMethod, setEndpointMethod] = useState("GET");
+  const [endpointPath, setEndpointPath] = useState("");
+  const [endpointFolderId, setEndpointFolderId] = useState<string | null>(null);
+
+  const fetchProject = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${params.id}`);
+      const json = await res.json();
+      if (json.success) {
+        setProject(json.data);
+      }
+    } catch {
+      // handled silently
+    } finally {
+      setLoading(false);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    fetchProject();
+  }, [fetchProject]);
+
+  const handleReorder = async (
+    folderUpdates: Array<{
+      id: string;
+      order: number;
+      parentId?: string | null;
+    }>,
+    endpointUpdates: Array<{
+      id: string;
+      order: number;
+      folderId: string | null;
+    }>,
+  ) => {
+    if (!project) return;
+
+    // Persist to server, then refresh to get correct nested structure
+    try {
+      await fetch(`/api/projects/${project.id}/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          folders: folderUpdates.length > 0 ? folderUpdates : undefined,
+          endpoints: endpointUpdates.length > 0 ? endpointUpdates : undefined,
+        }),
+      });
+      await fetchProject();
+    } catch {
+      await fetchProject();
+    }
+  };
+
+  const handleCreateFolder = async () => {
+    if (!folderName.trim() || !project) return;
+
+    try {
+      const res = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: folderName, projectId: project.id }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProject((prev) =>
+          prev ? { ...prev, folders: [...prev.folders, json.data] } : prev,
+        );
+        setFolderDialogOpen(false);
+        setFolderName("");
+      }
+    } catch {
+      // handled silently
+    }
+  };
+
+  const handleCreateEndpoint = async () => {
+    if (!endpointPath.trim() || !project) return;
+
+    try {
+      const res = await fetch("/api/endpoints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: endpointName,
+          method: endpointMethod,
+          path: endpointPath,
+          projectId: project.id,
+          folderId: endpointFolderId,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProject((prev) =>
+          prev ? { ...prev, endpoints: [...prev.endpoints, json.data] } : prev,
+        );
+        setEndpointDialogOpen(false);
+        setEndpointName("");
+        setEndpointMethod("GET");
+        setEndpointPath("");
+        setEndpointFolderId(null);
+        setSelectedEndpointId(json.data.id);
+      }
+    } catch {
+      // handled silently
+    }
+  };
+
+  const handleSaveEndpoint = async (data: Partial<Endpoint>) => {
+    if (!project || !selectedEndpointId) return;
+
+    try {
+      // Route to the correct API based on what's being saved
+      if (data.parameters) {
+        const res = await fetch(`/api/endpoints/${selectedEndpointId}/params`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ params: data.parameters }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          setProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  endpoints: prev.endpoints.map((ep) =>
+                    ep.id === selectedEndpointId
+                      ? { ...ep, parameters: json.data }
+                      : ep,
+                  ),
+                }
+              : prev,
+          );
+        }
+        return;
+      }
+
+      if (data.requestBody) {
+        const res = await fetch(`/api/endpoints/${selectedEndpointId}/body`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data.requestBody),
+        });
+        const json = await res.json();
+        if (json.success) {
+          setProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  endpoints: prev.endpoints.map((ep) =>
+                    ep.id === selectedEndpointId
+                      ? { ...ep, requestBody: json.data }
+                      : ep,
+                  ),
+                }
+              : prev,
+          );
+        }
+        return;
+      }
+
+      if (data.responses) {
+        const res = await fetch(
+          `/api/endpoints/${selectedEndpointId}/responses`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ responses: data.responses }),
+          },
+        );
+        const json = await res.json();
+        if (json.success) {
+          setProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  endpoints: prev.endpoints.map((ep) =>
+                    ep.id === selectedEndpointId
+                      ? { ...ep, responses: json.data }
+                      : ep,
+                  ),
+                }
+              : prev,
+          );
+        }
+        return;
+      }
+
+      // Basic info update (name, method, path, description)
+      const res = await fetch(`/api/endpoints/${selectedEndpointId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProject((prev) =>
+          prev
+            ? {
+                ...prev,
+                endpoints: prev.endpoints.map((ep) =>
+                  ep.id === selectedEndpointId ? { ...ep, ...json.data } : ep,
+                ),
+              }
+            : prev,
+        );
+      }
+    } catch {
+      // handled silently
+    }
+  };
+
+  const handleSaveSettings = async (data: Partial<Project>) => {
+    if (!project) return;
+
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProject((prev) => (prev ? { ...prev, ...json.data } : prev));
+        setSettingsOpen(false);
+      }
+    } catch {
+      // handled silently
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-zinc-500">加载中...</p>
+      </div>
+    );
+  }
+
+  if (!project) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-zinc-500">项目不存在</p>
+      </div>
+    );
+  }
+
+  // Recursively collect endpoints from all folders (including nested)
+  const collectFolderEndpoints = (folders: Folder[]): Endpoint[] =>
+    folders.flatMap((f) => [
+      ...(f.endpoints ?? []),
+      ...collectFolderEndpoints(f.children ?? []),
+    ]);
+
+  const allEndpoints = [
+    ...project.endpoints,
+    ...collectFolderEndpoints(project.folders),
+  ];
+
+  const selectedEndpoint = allEndpoints.find(
+    (ep) => ep.id === selectedEndpointId,
+  );
+
+  return (
+    <div
+      className="flex flex-col -m-6"
+      style={{ height: "calc(100vh - 3.5rem)" }}
+    >
+      {/* Top bar */}
+      <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+        <h1 className="text-lg font-semibold">{project.name}</h1>
+        <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)}>
+          <Settings className="mr-1 h-4 w-4" />
+          设置
+        </Button>
+      </div>
+
+      {/* Main content */}
+      <div className="flex flex-1 overflow-hidden min-h-0">
+        {/* Sidebar */}
+        <div className="w-64 flex-shrink-0 h-full">
+          <EndpointSidebar
+            folders={project.folders}
+            endpoints={allEndpoints}
+            selectedEndpointId={selectedEndpointId}
+            onSelectEndpoint={setSelectedEndpointId}
+            onCreateFolder={() => setFolderDialogOpen(true)}
+            onCreateEndpoint={(folderId) => {
+              setEndpointFolderId(folderId);
+              setEndpointDialogOpen(true);
+            }}
+            onReorder={handleReorder}
+          />
+        </div>
+
+        {/* Detail */}
+        <div className="flex-1 overflow-hidden">
+          {selectedEndpoint ? (
+            <EndpointDetail
+              key={selectedEndpoint.id}
+              endpoint={selectedEndpoint}
+              projectBaseUrl={project.baseUrl}
+              globalHeaders={project.globalHeaders ?? []}
+              globalParams={project.globalParams ?? []}
+              onSave={handleSaveEndpoint}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-zinc-400">
+              选择一个接口查看详情，或创建新接口
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Project Settings */}
+      {settingsOpen && (
+        <ProjectSettings
+          project={project}
+          onSave={handleSaveSettings}
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+        />
+      )}
+
+      {/* Create Folder Dialog */}
+      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新建文件夹</DialogTitle>
+          </DialogHeader>
+          <div>
+            <label className="mb-1 block text-sm font-medium">文件夹名称</label>
+            <Input
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              placeholder="输入文件夹名称"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setFolderDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button onClick={handleCreateFolder}>创建</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Endpoint Dialog */}
+      <Dialog open={endpointDialogOpen} onOpenChange={setEndpointDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>新建接口</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="mb-1 block text-sm font-medium">接口名称</label>
+              <Input
+                value={endpointName}
+                onChange={(e) => setEndpointName(e.target.value)}
+                placeholder="如：获取用户列表"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="mb-1 block text-sm font-medium">方法</label>
+                <Select
+                  value={endpointMethod}
+                  onValueChange={setEndpointMethod}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {HTTP_METHODS.map((m) => (
+                      <SelectItem key={m} value={m}>
+                        {m}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-sm font-medium">路径</label>
+                <Input
+                  value={endpointPath}
+                  onChange={(e) => setEndpointPath(e.target.value)}
+                  placeholder="/api/users"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEndpointDialogOpen(false)}
+            >
+              取消
+            </Button>
+            <Button onClick={handleCreateEndpoint}>创建</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
