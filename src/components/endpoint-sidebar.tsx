@@ -7,9 +7,12 @@ import { cn } from "@/lib/utils";
 import {
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Folder,
   GripVertical,
   Plus,
+  Trash2,
 } from "lucide-react";
 
 interface Endpoint {
@@ -42,6 +45,7 @@ interface EndpointSidebarProps {
   onSelectEndpoint: (id: string) => void;
   onCreateFolder: () => void;
   onCreateEndpoint: (folderId: string | null) => void;
+  onDeleteFolder: (folderId: string) => void;
   onReorder: (
     folders: Array<{ id: string; order: number; parentId?: string | null }>,
     endpoints: Array<{ id: string; order: number; folderId: string | null }>,
@@ -55,6 +59,7 @@ export function EndpointSidebar({
   onSelectEndpoint,
   onCreateFolder,
   onCreateEndpoint,
+  onDeleteFolder,
   onReorder,
 }: EndpointSidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
@@ -73,6 +78,19 @@ export function EndpointSidebar({
 
   const toggleFolder = (folderId: string) => {
     setCollapsed((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
+  };
+
+  const collapseAllFolders = () => {
+    setCollapsed(
+      folders.reduce<Record<string, boolean>>((acc, folder) => {
+        acc[folder.id] = true;
+        return acc;
+      }, {}),
+    );
+  };
+
+  const expandAllFolders = () => {
+    setCollapsed({});
   };
 
   // Separate root-level folders and children
@@ -424,8 +442,19 @@ export function EndpointSidebar({
               onCreateEndpoint(folder.id);
             }}
             className="rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+            aria-label={`在 ${folder.name} 中创建接口`}
           >
             <Plus className="h-3 w-3 text-zinc-400" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteFolder(folder.id);
+            }}
+            className="rounded p-0.5 hover:bg-red-50 dark:hover:bg-red-950/40"
+            aria-label={`删除文件夹 ${folder.name}`}
+          >
+            <Trash2 className="h-3 w-3 text-zinc-400 hover:text-red-500" />
           </button>
         </div>
 
@@ -496,6 +525,26 @@ export function EndpointSidebar({
         >
           <Plus className="mr-1 h-3 w-3" />
           接口
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={expandAllFolders}
+          className="h-8 w-8"
+          aria-label="全部展开"
+          title="全部展开"
+        >
+          <ChevronsUpDown className="h-3.5 w-3.5" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={collapseAllFolders}
+          className="h-8 w-8"
+          aria-label="全部收缩"
+          title="全部收缩"
+        >
+          <ChevronsDownUp className="h-3.5 w-3.5" />
         </Button>
       </div>
 

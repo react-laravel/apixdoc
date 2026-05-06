@@ -48,6 +48,15 @@ export async function PUT(
 
     const body = await request.json();
     const { name, order, parentId } = body;
+    const normalizedName =
+      typeof name === "string" ? name.trim() : undefined;
+
+    if (name !== undefined && !normalizedName) {
+      return NextResponse.json(
+        { success: false, error: "Name is required" },
+        { status: 400 },
+      );
+    }
 
     if (parentId === id) {
       return NextResponse.json(
@@ -70,10 +79,30 @@ export async function PUT(
       }
     }
 
+    if (normalizedName !== undefined) {
+      const existingFolders = await prisma.folder.findMany({
+        where: { projectId: folder.projectId, NOT: { id } },
+        select: { name: true },
+      });
+
+      if (
+        existingFolders.some(
+          (existingFolder) =>
+            existingFolder.name.trim().toLowerCase() ===
+            normalizedName.toLowerCase(),
+        )
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Folder name already exists" },
+          { status: 409 },
+        );
+      }
+    }
+
     const updated = await prisma.folder.update({
       where: { id },
       data: {
-        ...(name !== undefined && { name }),
+        ...(normalizedName !== undefined && { name: normalizedName }),
         ...(order !== undefined && { order }),
         ...(parentId !== undefined && { parentId }),
       },

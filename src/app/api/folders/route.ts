@@ -17,8 +17,10 @@ export async function POST(
 
     const body = await request.json();
     const { name, projectId, parentId } = body;
+    const normalizedName =
+      typeof name === "string" ? name.trim() : "";
 
-    if (!name || !projectId) {
+    if (!normalizedName || !projectId) {
       return NextResponse.json(
         { success: false, error: "Name and projectId are required" },
         { status: 400 }
@@ -66,9 +68,26 @@ export async function POST(
       }
     }
 
+    const existingFolders = await prisma.folder.findMany({
+      where: { projectId },
+      select: { name: true },
+    });
+
+    if (
+      existingFolders.some(
+        (folder) =>
+          folder.name.trim().toLowerCase() === normalizedName.toLowerCase()
+      )
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Folder name already exists" },
+        { status: 409 }
+      );
+    }
+
     const folder = await prisma.folder.create({
       data: {
-        name,
+        name: normalizedName,
         projectId,
         parentId: parentId || null,
       },

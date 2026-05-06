@@ -25,6 +25,19 @@ export function DashboardNav({ user }: DashboardNavProps) {
         </Link>
 
         <div className="flex items-center gap-4">
+          <nav className="flex items-center gap-1">
+            <Link href="/dashboard">
+              <Button variant="ghost" size="sm">
+                组织管理
+              </Button>
+            </Link>
+            <Link href="/dashboard/projects">
+              <Button variant="ghost" size="sm">
+                项目管理
+              </Button>
+            </Link>
+          </nav>
+
           {user.role === "admin" && (
             <Link href="/dashboard/users">
               <Button variant="ghost" size="sm">

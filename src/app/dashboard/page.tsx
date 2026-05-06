@@ -73,7 +73,7 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">仪表盘</h1>
+          <h1 className="text-2xl font-bold">组织管理</h1>
           {session?.user && (
             <p className="text-sm text-zinc-500">
               欢迎回来，{session.user.name}

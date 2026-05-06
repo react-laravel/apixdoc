@@ -106,6 +106,7 @@ export default function ProjectPage() {
   // Create folder dialog
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
+  const [folderError, setFolderError] = useState("");
 
   // Create endpoint dialog
   const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
@@ -163,13 +164,22 @@ export default function ProjectPage() {
   };
 
   const handleCreateFolder = async () => {
-    if (!folderName.trim() || !project) return;
+    const normalizedName = folderName.trim();
+    if (!normalizedName || !project) return;
+
+    const exists = project.folders.some(
+      (folder) => folder.name.trim().toLowerCase() === normalizedName.toLowerCase(),
+    );
+    if (exists) {
+      setFolderError("文件夹名称不能重复");
+      return;
+    }
 
     try {
       const res = await fetch("/api/folders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: folderName, projectId: project.id }),
+        body: JSON.stringify({ name: normalizedName, projectId: project.id }),
       });
       const json = await res.json();
       if (json.success) {
@@ -178,9 +188,52 @@ export default function ProjectPage() {
         );
         setFolderDialogOpen(false);
         setFolderName("");
+        setFolderError("");
+      } else {
+        setFolderError(json.error || "创建文件夹失败");
       }
     } catch {
-      // handled silently
+      setFolderError("创建文件夹失败");
+    }
+  };
+
+  const handleDeleteFolder = async (folderId: string) => {
+    if (!project) return;
+
+    if (!window.confirm("确定要删除此文件夹吗？子文件夹也会被删除。")) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/folders/${folderId}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (selectedEndpointId) {
+          const deletedFolderIds = new Set<string>();
+          const collectDeletedFolderIds = (parentId: string) => {
+            deletedFolderIds.add(parentId);
+            project.folders
+              .filter((folder) => folder.parentId === parentId)
+              .forEach((folder) => collectDeletedFolderIds(folder.id));
+          };
+          collectDeletedFolderIds(folderId);
+
+          const selectedEndpoint = allEndpoints.find(
+            (endpoint) => endpoint.id === selectedEndpointId,
+          );
+          if (
+            selectedEndpoint?.folderId &&
+            deletedFolderIds.has(selectedEndpoint.folderId)
+          ) {
+            setSelectedEndpointId(null);
+          }
+        }
+        await fetchProject();
+      }
+    } catch {
+      await fetchProject();
     }
   };
 
@@ -394,11 +447,15 @@ export default function ProjectPage() {
             endpoints={allEndpoints}
             selectedEndpointId={selectedEndpointId}
             onSelectEndpoint={setSelectedEndpointId}
-            onCreateFolder={() => setFolderDialogOpen(true)}
+            onCreateFolder={() => {
+              setFolderError("");
+              setFolderDialogOpen(true);
+            }}
             onCreateEndpoint={(folderId) => {
               setEndpointFolderId(folderId);
               setEndpointDialogOpen(true);
             }}
+            onDeleteFolder={handleDeleteFolder}
             onReorder={handleReorder}
           />
         </div>
@@ -433,7 +490,15 @@ export default function ProjectPage() {
       )}
 
       {/* Create Folder Dialog */}
-      <Dialog open={folderDialogOpen} onOpenChange={setFolderDialogOpen}>
+      <Dialog
+        open={folderDialogOpen}
+        onOpenChange={(open) => {
+          setFolderDialogOpen(open);
+          if (!open) {
+            setFolderError("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>新建文件夹</DialogTitle>
@@ -442,9 +507,15 @@ export default function ProjectPage() {
             <label className="mb-1 block text-sm font-medium">文件夹名称</label>
             <Input
               value={folderName}
-              onChange={(e) => setFolderName(e.target.value)}
+              onChange={(e) => {
+                setFolderName(e.target.value);
+                setFolderError("");
+              }}
               placeholder="输入文件夹名称"
             />
+            {folderError && (
+              <p className="mt-1 text-xs text-red-500">{folderError}</p>
+            )}
           </div>
           <DialogFooter>
             <Button
