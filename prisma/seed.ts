@@ -4,7 +4,9 @@ import { hashSync } from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  const adminEmail = "admin@apixdocs.com";
+  const adminEmail = process.env.ADMIN_EMAIL || "admin@apixdocs.com";
+  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
+
   const existing = await prisma.user.findUnique({
     where: { email: adminEmail },
   });
@@ -14,11 +16,11 @@ async function main() {
       data: {
         email: adminEmail,
         name: "Admin",
-        password: hashSync("admin123", 12),
+        password: hashSync(adminPassword, 12),
         role: "admin",
       },
     });
-    console.log("Admin user created: admin@apixdocs.com / admin123");
+    console.log(`Admin user created: ${adminEmail}`);
   } else {
     console.log("Admin user already exists");
   }
