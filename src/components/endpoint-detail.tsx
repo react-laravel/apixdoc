@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { MethodBadge } from "@/components/method-badge";
 import { HTTP_METHODS } from "@/lib/utils";
+import { Trash2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const TOKEN_FIELD_NAMES = new Set([
   "token",
@@ -247,6 +249,45 @@ export function EndpointDetail({
     setResponses((prev) => [
       ...prev,
       { statusCode: 200, description: "", contentType: "application/json", example: "" },
+    ]);
+  };
+
+  const addResponseWithStatus = (statusCode: number) => {
+    setResponses((prev) => {
+      const exists = prev.some((r) => r.statusCode === statusCode);
+      if (exists) return prev;
+      return [
+        ...prev,
+        { statusCode, description: "", contentType: "application/json", example: "" },
+      ];
+    });
+  };
+
+  const addTestResponse = () => {
+    if (!testResponse) return;
+    const exists = responses.some((r) => r.statusCode === testResponse.status);
+    if (exists) {
+      setResponses((prev) =>
+        prev.map((r) =>
+          r.statusCode === testResponse.status
+            ? {
+                ...r,
+                description: r.description || `${testResponse.status} response`,
+                example: testResponse.body,
+              }
+            : r,
+        ),
+      );
+      return;
+    }
+    setResponses((prev) => [
+      ...prev,
+      {
+        statusCode: testResponse.status,
+        description: `${testResponse.status} response`,
+        contentType: testResponse.headers["content-type"]?.split(";")[0] || "application/json",
+        example: testResponse.body,
+      },
     ]);
   };
 
@@ -614,8 +655,16 @@ export function EndpointDetail({
           {responses.map((r, i) => (
             <div
               key={i}
-              className="space-y-3 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800"
+              className="relative space-y-3 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800"
             >
+              <button
+                type="button"
+                onClick={() => removeResponse(i)}
+                className="absolute right-2 top-2 rounded p-1 text-zinc-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-950/40"
+                aria-label="删除此响应"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div>
                   <label className="mb-1 block text-xs font-medium">
@@ -662,14 +711,6 @@ export function EndpointDetail({
                     </SelectContent>
                   </Select>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="sm:mt-5"
-                  onClick={() => removeResponse(i)}
-                >
-                  删除
-                </Button>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium">
@@ -684,13 +725,36 @@ export function EndpointDetail({
               </div>
             </div>
           ))}
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={addResponse}>
-              添加响应
-            </Button>
-            <Button size="sm" onClick={handleSaveResponses}>
-              保存
-            </Button>
+          <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-zinc-400">快速添加：</span>
+              {[200, 201, 400, 401, 403, 404, 422, 500].map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => addResponseWithStatus(code)}
+                  disabled={responses.some((r) => r.statusCode === code)}
+                  className={cn(
+                    "rounded border px-1.5 py-0.5 text-xs font-mono transition-colors",
+                    code < 300
+                      ? "border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-30 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                      : code < 500
+                      ? "border-amber-200 text-amber-700 hover:bg-amber-50 disabled:opacity-30 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                      : "border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-30 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40",
+                  )}
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={addResponse}>
+                添加响应
+              </Button>
+              <Button size="sm" onClick={handleSaveResponses}>
+                保存
+              </Button>
+            </div>
           </div>
         </TabsContent>
 
@@ -835,9 +899,16 @@ export function EndpointDetail({
           )}
 
           {/* Send Button */}
-          <Button onClick={handleSendRequest} disabled={testLoading}>
-            {testLoading ? "发送中..." : "发送请求"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={handleSendRequest} disabled={testLoading}>
+              {testLoading ? "发送中..." : "发送请求"}
+            </Button>
+            {testResponse && (
+              <Button variant="outline" size="sm" onClick={addTestResponse}>
+                添加到响应
+              </Button>
+            )}
+          </div>
 
           {/* Error */}
           {testError && (

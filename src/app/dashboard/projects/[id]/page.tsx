@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -115,6 +116,7 @@ export default function ProjectPage() {
   const [endpointMethod, setEndpointMethod] = useState("GET");
   const [endpointPath, setEndpointPath] = useState("");
   const [endpointFolderId, setEndpointFolderId] = useState<string | null>(null);
+  const [endpointDescription, setEndpointDescription] = useState("");
 
   const fetchProject = useCallback(async () => {
     try {
@@ -246,6 +248,32 @@ export default function ProjectPage() {
     }
   };
 
+  const handleRenameFolder = async (folderId: string, newName: string) => {
+    if (!project) return;
+    try {
+      const res = await fetch(`/api/folders/${folderId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setProject((prev) =>
+          prev
+            ? {
+                ...prev,
+                folders: prev.folders.map((f) =>
+                  f.id === folderId ? { ...f, name: newName } : f,
+                ),
+              }
+            : prev,
+        );
+      }
+    } catch {
+      // handled silently
+    }
+  };
+
   const handleCreateEndpoint = async () => {
     if (!endpointPath.trim() || !project) return;
 
@@ -257,6 +285,7 @@ export default function ProjectPage() {
           name: endpointName,
           method: endpointMethod,
           path: endpointPath,
+          description: endpointDescription,
           projectId: project.id,
           folderId: endpointFolderId,
         }),
@@ -272,6 +301,7 @@ export default function ProjectPage() {
         setEndpointPath("");
         setEndpointFolderId(null);
         setSelectedEndpointId(json.data.id);
+        setEndpointDescription("");
       }
     } catch {
       // handled silently
@@ -465,6 +495,7 @@ export default function ProjectPage() {
               setEndpointDialogOpen(true);
             }}
             onDeleteFolder={handleDeleteFolder}
+            onRenameFolder={handleRenameFolder}
             onReorder={handleReorder}
           />
         </div>
@@ -602,11 +633,23 @@ export default function ProjectPage() {
                 />
               </div>
             </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">描述</label>
+              <Textarea
+                value={endpointDescription}
+                onChange={(e) => setEndpointDescription(e.target.value)}
+                placeholder="接口功能描述"
+                rows={3}
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setEndpointDialogOpen(false)}
+              onClick={() => {
+                setEndpointDialogOpen(false);
+                setEndpointDescription("");
+              }}
             >
               取消
             </Button>

@@ -12,10 +12,12 @@ import {
   ChevronsUpDown,
   Folder,
   GripVertical,
+  MoreHorizontal,
   Plus,
   Search,
   Trash2,
   X,
+  Pencil,
 } from "lucide-react";
 
 interface Endpoint {
@@ -49,6 +51,7 @@ interface EndpointSidebarProps {
   onCreateFolder: () => void;
   onCreateEndpoint: (folderId: string | null) => void;
   onDeleteFolder: (folderId: string) => void;
+  onRenameFolder: (folderId: string, newName: string) => void;
   onReorder: (
     folders: Array<{ id: string; order: number; parentId?: string | null }>,
     endpoints: Array<{ id: string; order: number; folderId: string | null }>,
@@ -63,12 +66,16 @@ export function EndpointSidebar({
   onCreateFolder,
   onCreateEndpoint,
   onDeleteFolder,
+  onRenameFolder,
   onReorder,
 }: EndpointSidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropTarget, setDropTargetState] = useState<DropTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
 
   // Use ref to avoid stale closure issues in drag event handlers
   const dropTargetRef = useRef<DropTarget | null>(null);
@@ -95,6 +102,22 @@ export function EndpointSidebar({
 
   const expandAllFolders = () => {
     setCollapsed({});
+  };
+
+  const startRename = (folder: FolderItem) => {
+    setRenamingId(folder.id);
+    setRenameValue(folder.name);
+    requestAnimationFrame(() => {
+      renameInputRef.current?.select();
+    });
+  };
+
+  const confirmRename = () => {
+    if (renamingId && renameValue.trim()) {
+      onRenameFolder(renamingId, renameValue.trim());
+    }
+    setRenamingId(null);
+    setRenameValue("");
   };
 
   // Separate root-level folders and children
@@ -452,27 +475,55 @@ export function EndpointSidebar({
             )}
           </button>
           <Folder className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400" />
-          <span className="flex-1 truncate text-left">{folder.name}</span>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onCreateEndpoint(folder.id);
-            }}
-            className="rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-            aria-label={`在 ${folder.name} 中创建接口`}
-          >
-            <Plus className="h-3 w-3 text-zinc-400" />
-          </button>
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDeleteFolder(folder.id);
-            }}
-            className="rounded p-0.5 hover:bg-red-50 dark:hover:bg-red-950/40"
-            aria-label={`删除文件夹 ${folder.name}`}
-          >
-            <Trash2 className="h-3 w-3 text-zinc-400 hover:text-red-500" />
-          </button>
+          {renamingId === folder.id ? (
+            <input
+              ref={renameInputRef}
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onBlur={confirmRename}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmRename();
+                if (e.key === "Escape") setRenamingId(null);
+              }}
+              className="flex-1 min-w-0 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-sm dark:border-zinc-600 dark:bg-zinc-800"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <span className="flex-1 truncate text-left">{folder.name}</span>
+          )}
+          <details className="relative">
+            <summary
+              className="flex h-6 w-6 items-center justify-center rounded p-0 hover:bg-zinc-200 dark:hover:bg-zinc-700 [&::-webkit-details-marker]:hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5 text-zinc-400" />
+            </summary>
+            <div className="absolute right-0 top-[calc(100%+4px)] z-20 min-w-[140px] rounded-lg border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-800">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startRename(folder);
+                }}
+              >
+                <Pencil className="h-3.5 w-3.5 text-zinc-400" />
+                重命名
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteFolder(folder.id);
+                }}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                删除
+              </button>
+            </div>
+          </details>
         </div>
 
         {!isCollapsed && (
