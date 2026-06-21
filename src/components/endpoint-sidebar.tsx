@@ -8,9 +8,10 @@ import { cn } from "@/lib/utils";
 import {
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
   ChevronsUpDown,
   Folder,
+  FolderPlus,
+  FilePlus,
   GripVertical,
   MoreHorizontal,
   Plus,
@@ -18,6 +19,8 @@ import {
   Trash2,
   X,
   Pencil,
+  FoldVertical,
+  UnfoldVertical,
 } from "lucide-react";
 
 interface Endpoint {
@@ -70,6 +73,7 @@ export function EndpointSidebar({
   onReorder,
 }: EndpointSidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [allCollapsed, setAllCollapsed] = useState(false);
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropTarget, setDropTargetState] = useState<DropTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -88,10 +92,17 @@ export function EndpointSidebar({
   }, []);
 
   const toggleFolder = (folderId: string) => {
-    setCollapsed((prev) => ({ ...prev, [folderId]: !prev[folderId] }));
+    setCollapsed((prev) => {
+      const next = { ...prev, [folderId]: !prev[folderId] };
+      // If any folder is expanded, mark allCollapsed as false
+      const allCollapsedNow = folders.every((f) => next[f.id]);
+      setAllCollapsed(allCollapsedNow);
+      return next;
+    });
   };
 
   const collapseAllFolders = () => {
+    setAllCollapsed(true);
     setCollapsed(
       folders.reduce<Record<string, boolean>>((acc, folder) => {
         acc[folder.id] = true;
@@ -101,7 +112,16 @@ export function EndpointSidebar({
   };
 
   const expandAllFolders = () => {
+    setAllCollapsed(false);
     setCollapsed({});
+  };
+
+  const toggleAllFolders = () => {
+    if (allCollapsed) {
+      expandAllFolders();
+    } else {
+      collapseAllFolders();
+    }
   };
 
   const startRename = (folder: FolderItem) => {
@@ -492,6 +512,16 @@ export function EndpointSidebar({
           ) : (
             <span className="flex-1 truncate text-left">{folder.name}</span>
           )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onCreateEndpoint(folder.id);
+            }}
+            className="rounded p-0.5 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+            aria-label={`在 ${folder.name} 中创建接口`}
+          >
+            <Plus className="h-3.5 w-3.5 text-zinc-400" />
+          </button>
           <details className="relative">
             <summary
               className="flex h-6 w-6 items-center justify-center rounded p-0 hover:bg-zinc-200 dark:hover:bg-zinc-700 [&::-webkit-details-marker]:hidden"
@@ -575,54 +605,47 @@ export function EndpointSidebar({
 
   return (
     <div className="flex h-full flex-col bg-white md:border-r md:border-zinc-200 dark:bg-zinc-900 md:dark:border-zinc-800">
-      <div className="flex items-center gap-2 overflow-x-auto border-b border-zinc-200 p-2 sm:p-3 dark:border-zinc-800">
+      <div className="flex items-center gap-2 border-b border-zinc-200 p-2 sm:p-3 dark:border-zinc-800">
         <Button
           variant="outline"
-          size="sm"
+          size="icon"
           onClick={onCreateFolder}
-          className="min-w-20 flex-1 text-xs"
+          className="h-8 w-8 flex-shrink-0"
+          aria-label="新建文件夹"
+          title="新建文件夹"
         >
-          <Plus className="mr-1 h-3 w-3" />
-          文件夹
+          <FolderPlus className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="outline"
-          size="sm"
+          size="icon"
           onClick={() => onCreateEndpoint(null)}
-          className="min-w-20 flex-1 text-xs"
+          className="h-8 w-8 flex-shrink-0"
+          aria-label="新建接口"
+          title="新建接口"
         >
-          <Plus className="mr-1 h-3 w-3" />
-          接口
+          <FilePlus className="h-3.5 w-3.5" />
         </Button>
         <Button
           variant="outline"
           size="icon"
-          onClick={expandAllFolders}
-          className="h-8 w-8"
-          aria-label="全部展开"
-          title="全部展开"
+          onClick={toggleAllFolders}
+          className="h-8 w-8 flex-shrink-0"
+          aria-label={allCollapsed ? "全部展开" : "全部收缩"}
+          title={allCollapsed ? "全部展开" : "全部收缩"}
         >
-          <ChevronsUpDown className="h-3.5 w-3.5" />
+          {allCollapsed ? (
+            <UnfoldVertical className="h-3.5 w-3.5" />
+          ) : (
+            <FoldVertical className="h-3.5 w-3.5" />
+          )}
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={collapseAllFolders}
-          className="h-8 w-8"
-          aria-label="全部收缩"
-          title="全部收缩"
-        >
-          <ChevronsDownUp className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      <div className="border-b border-zinc-200 p-2 dark:border-zinc-800">
-        <div className="relative">
+        <div className="flex-1 min-w-0 relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索接口名称 / 路径 / 方法"
+            placeholder="搜索接口..."
             className="h-8 pl-7 pr-8 text-xs"
           />
           {searchQuery && (

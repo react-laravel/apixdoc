@@ -117,6 +117,7 @@ export default function ProjectPage() {
   const [endpointPath, setEndpointPath] = useState("");
   const [endpointFolderId, setEndpointFolderId] = useState<string | null>(null);
   const [endpointDescription, setEndpointDescription] = useState("");
+  const [endpointError, setEndpointError] = useState("");
 
   const fetchProject = useCallback(async () => {
     try {
@@ -142,6 +143,12 @@ export default function ProjectPage() {
     updateIsDesktop();
     mediaQuery.addEventListener("change", updateIsDesktop);
     return () => mediaQuery.removeEventListener("change", updateIsDesktop);
+  }, []);
+
+  useEffect(() => {
+    const handleOpenSettings = () => setSettingsOpen(true);
+    window.addEventListener('open-settings', handleOpenSettings);
+    return () => window.removeEventListener('open-settings', handleOpenSettings);
   }, []);
 
   const handleReorder = async (
@@ -275,7 +282,13 @@ export default function ProjectPage() {
   };
 
   const handleCreateEndpoint = async () => {
-    if (!endpointPath.trim() || !project) return;
+    setEndpointError("");
+
+    if (!endpointPath.trim()) {
+      setEndpointError("请填写接口路径");
+      return;
+    }
+    if (!project) return;
 
     try {
       const res = await fetch("/api/endpoints", {
@@ -302,9 +315,12 @@ export default function ProjectPage() {
         setEndpointFolderId(null);
         setSelectedEndpointId(json.data.id);
         setEndpointDescription("");
+        setEndpointError("");
+      } else {
+        setEndpointError(json.error || "创建接口失败");
       }
     } catch {
-      // handled silently
+      setEndpointError("创建接口失败");
     }
   };
 
@@ -465,18 +481,6 @@ export default function ProjectPage() {
 
   return (
     <div className="-m-3 flex h-[calc(100%+1.5rem)] min-h-0 flex-col sm:-m-6 sm:h-[calc(100%+3rem)]">
-      {/* Top bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2 sm:px-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold sm:text-lg">{project.name}</h1>
-          <p className="truncate text-xs text-zinc-500 sm:hidden">{project.baseUrl}</p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)}>
-          <Settings className="mr-1 h-4 w-4" />
-          设置
-        </Button>
-      </div>
-
       {/* Main content */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Sidebar */}
@@ -590,7 +594,20 @@ export default function ProjectPage() {
       </Dialog>
 
       {/* Create Endpoint Dialog */}
-      <Dialog open={endpointDialogOpen} onOpenChange={setEndpointDialogOpen}>
+      <Dialog
+        open={endpointDialogOpen}
+        onOpenChange={(open) => {
+          setEndpointDialogOpen(open);
+          if (!open) {
+            setEndpointError("");
+            setEndpointName("");
+            setEndpointMethod("GET");
+            setEndpointPath("");
+            setEndpointFolderId(null);
+            setEndpointDescription("");
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>新建接口</DialogTitle>
@@ -627,7 +644,10 @@ export default function ProjectPage() {
                 <label className="mb-1 block text-sm font-medium">路径</label>
                 <Input
                   value={endpointPath}
-                  onChange={(e) => setEndpointPath(e.target.value)}
+                  onChange={(e) => {
+                    setEndpointPath(e.target.value);
+                    if (endpointError) setEndpointError("");
+                  }}
                   placeholder="/api/users"
                   className="font-mono"
                 />
@@ -642,14 +662,14 @@ export default function ProjectPage() {
                 rows={3}
               />
             </div>
+            {endpointError && (
+              <p className="text-xs text-red-500">{endpointError}</p>
+            )}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => {
-                setEndpointDialogOpen(false);
-                setEndpointDescription("");
-              }}
+              onClick={() => setEndpointDialogOpen(false)}
             >
               取消
             </Button>

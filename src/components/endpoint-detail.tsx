@@ -203,6 +203,33 @@ export function EndpointDetail({
     onSave({ name, method, path, description });
   };
 
+  /** 从 JSON Schema 中提取顶层字段名 */
+  function extractSchemaFieldNames(schemaText: string): string[] {
+    if (!schemaText || !schemaText.trim()) return [];
+    try {
+      const schema = JSON.parse(schemaText);
+      if (schema.properties && typeof schema.properties === "object") {
+        return Object.keys(schema.properties);
+      }
+      if (schema.type === "array" && schema.items?.properties) {
+        return Object.keys(schema.items.properties);
+      }
+    } catch {
+      // not valid JSON
+    }
+    return [];
+  }
+
+  /** 请求参数（query/path/header）中与请求体字段重名的列表 */
+  const duplicateFields = (() => {
+    const bodyFieldNames = new Set(extractSchemaFieldNames(bodySchema));
+    const queryPathHeaderNames = params
+      .filter((p) => ["query", "path", "header"].includes(p.location))
+      .map((p) => p.name.trim())
+      .filter(Boolean);
+    return queryPathHeaderNames.filter((name) => bodyFieldNames.has(name));
+  })();
+
   const handleSaveParams = () => {
     onSave({ parameters: params });
   };
@@ -589,6 +616,16 @@ export function EndpointDetail({
               </tbody>
             </table>
           </div>
+          {duplicateFields.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+              以下参数在请求体和请求参数中同时出现，可能重复：{duplicateFields.map((f, idx) => (
+                <span key={f}>
+                  {idx > 0 && "、"}
+                  <code className="mx-0.5 rounded bg-amber-100 px-1 dark:bg-amber-900">{f}</code>
+                </span>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={addParam}>
               添加参数
@@ -623,6 +660,16 @@ export function EndpointDetail({
               </SelectContent>
             </Select>
           </div>
+          {duplicateFields.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400">
+              以下字段在请求体和请求参数中同时出现，请确认是否需要重复定义：{duplicateFields.map((f, idx) => (
+                <span key={f}>
+                  {idx > 0 && "、"}
+                  <code className="mx-0.5 rounded bg-amber-100 px-1 dark:bg-amber-900">{f}</code>
+                </span>
+              ))}
+            </div>
+          )}
           <div>
             <label className="mb-1 block text-sm font-medium">
               JSON Schema
