@@ -274,15 +274,26 @@ export function EndpointDetail({
   };
 
   const hasBody = ["POST", "PUT", "PATCH"].includes(method.toUpperCase());
+  const normalizedName = name.trim().replace(/\s+/g, " ");
+  const normalizedPath = path.trim().replace(/\s+/g, " ");
+  const normalizedMethodPath = `${method} ${path}`.trim().replace(/\s+/g, " ");
+  const shouldShowName =
+    normalizedName &&
+    normalizedName !== normalizedPath &&
+    normalizedName !== normalizedMethodPath;
 
   return (
     <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-6">
       <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
         <MethodBadge method={method} />
-        <span className="min-w-0 break-all font-mono text-xs text-zinc-600 sm:text-sm dark:text-zinc-400">
+        <span className="min-w-0 break-all pr-6 font-mono text-xs text-zinc-600 sm:pr-0 sm:text-sm dark:text-zinc-400">
           {path}
         </span>
-        <span className="min-w-0 break-words text-base font-semibold sm:text-lg">{name}</span>
+        {shouldShowName && (
+          <span className="min-w-0 break-words pr-6 text-base font-semibold sm:text-lg">
+            {name}
+          </span>
+        )}
       </div>
 
       <Tabs defaultValue="basic">
