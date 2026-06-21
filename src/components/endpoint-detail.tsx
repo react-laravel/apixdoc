@@ -315,6 +315,15 @@ export function EndpointDetail({
       if (h.key) headersObj[h.key] = h.value;
     }
 
+    const normalizedMethod = method.toUpperCase();
+    const requestHasBody = ["POST", "PUT", "PATCH"].includes(normalizedMethod);
+    const hasContentTypeHeader = Object.keys(headersObj).some(
+      (key) => key.toLowerCase() === "content-type"
+    );
+    if (requestHasBody && !hasContentTypeHeader) {
+      headersObj["Content-Type"] = bodyContentType || "application/json";
+    }
+
     const hasAuthorizationHeader = Object.keys(headersObj).some(
       (key) => key.toLowerCase() === "authorization"
     );
@@ -322,15 +331,17 @@ export function EndpointDetail({
       headersObj.Authorization = `Bearer ${authToken}`;
     }
 
+    const requestBody = requestHasBody ? (testBody || bodyExample) : undefined;
+
     try {
       const res = await fetch("/api/proxy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: fullUrl,
-          method,
+          method: normalizedMethod,
           headers: headersObj,
-          body: ["POST", "PUT", "PATCH"].includes(method) ? testBody : undefined,
+          body: requestBody,
         }),
       });
       const json = await res.json();
