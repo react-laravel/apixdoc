@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { MethodBadge } from "@/components/method-badge";
 import { cn } from "@/lib/utils";
 import {
@@ -12,7 +13,9 @@ import {
   Folder,
   GripVertical,
   Plus,
+  Search,
   Trash2,
+  X,
 } from "lucide-react";
 
 interface Endpoint {
@@ -65,6 +68,7 @@ export function EndpointSidebar({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropTarget, setDropTargetState] = useState<DropTarget | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Use ref to avoid stale closure issues in drag event handlers
   const dropTargetRef = useRef<DropTarget | null>(null);
@@ -104,6 +108,19 @@ export function EndpointSidebar({
     (folderId: string) => endpoints.filter((e) => e.folderId === folderId),
     [endpoints],
   );
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const folderNameById = new Map(folders.map((folder) => [folder.id, folder.name]));
+  const searchResults = normalizedSearchQuery
+    ? endpoints.filter((endpoint) => {
+        const folderName = endpoint.folderId
+          ? (folderNameById.get(endpoint.folderId) ?? "")
+          : "未分组";
+        return [endpoint.name, endpoint.path, endpoint.method, folderName]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearchQuery);
+      })
+    : [];
 
   // --- Helpers ---
 
@@ -548,6 +565,28 @@ export function EndpointSidebar({
         </Button>
       </div>
 
+      <div className="border-b border-zinc-200 p-2 dark:border-zinc-800">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索接口名称 / 路径 / 方法"
+            className="h-8 pl-7 pr-8 text-xs"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+              aria-label="清空搜索"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
       <div
         className="flex flex-1 flex-col overflow-y-auto overscroll-contain p-2"
         onDragOver={(e) => {
@@ -555,43 +594,70 @@ export function EndpointSidebar({
           e.dataTransfer.dropEffect = "move";
         }}
       >
-        {/* Root folders */}
-        {rootFolders.map((folder) => renderFolder(folder, 0))}
-
-        {/* Root-level endpoints */}
-        {rootEndpoints.length > 0 && (
-          <div className="mt-1">
-            {rootFolders.length > 0 && (
-              <p className="px-2 py-1 text-xs font-medium text-zinc-400">
-                未分组
-              </p>
-            )}
-            {rootEndpoints.map((ep) => (
-              <EndpointRow
+        {normalizedSearchQuery ? (
+          <div className="space-y-1">
+            <p className="px-2 py-1 text-xs text-zinc-400">
+              找到 {searchResults.length} 个接口
+            </p>
+            {searchResults.map((ep) => (
+              <SearchResultRow
                 key={ep.id}
                 ep={ep}
-                depth={0}
+                folderName={
+                  ep.folderId ? (folderNameById.get(ep.folderId) ?? "") : "未分组"
+                }
                 isSelected={selectedEndpointId === ep.id}
-                isDraggingThis={
-                  dragItem?.type === "endpoint" && dragItem.id === ep.id
-                }
-                isDropBefore={matchDrop("endpoint", ep.id, "before")}
-                isDropAfter={matchDrop("endpoint", ep.id, "after")}
-                dropLineClass={dropLineClass}
                 onSelect={() => onSelectEndpoint(ep.id)}
-                onDragStart={(e) =>
-                  handleDragStart(e, { type: "endpoint", id: ep.id })
-                }
-                onDragEnd={handleDragEnd}
-                onDragEnter={(e) => handleEndpointDragEnter(e, ep.id)}
-                onDragOver={(e) => handleEndpointDragOver(e, ep.id)}
-                onDragLeave={(e) => handleEndpointDragLeave(e, ep.id)}
               />
             ))}
+            {searchResults.length === 0 && (
+              <p className="px-2 py-6 text-center text-sm text-zinc-400">
+                没有匹配的接口
+              </p>
+            )}
           </div>
+        ) : (
+          <>
+            {/* Root folders */}
+            {rootFolders.map((folder) => renderFolder(folder, 0))}
+
+            {/* Root-level endpoints */}
+            {rootEndpoints.length > 0 && (
+              <div className="mt-1">
+                {rootFolders.length > 0 && (
+                  <p className="px-2 py-1 text-xs font-medium text-zinc-400">
+                    未分组
+                  </p>
+                )}
+                {rootEndpoints.map((ep) => (
+                  <EndpointRow
+                    key={ep.id}
+                    ep={ep}
+                    depth={0}
+                    isSelected={selectedEndpointId === ep.id}
+                    isDraggingThis={
+                      dragItem?.type === "endpoint" && dragItem.id === ep.id
+                    }
+                    isDropBefore={matchDrop("endpoint", ep.id, "before")}
+                    isDropAfter={matchDrop("endpoint", ep.id, "after")}
+                    dropLineClass={dropLineClass}
+                    onSelect={() => onSelectEndpoint(ep.id)}
+                    onDragStart={(e) =>
+                      handleDragStart(e, { type: "endpoint", id: ep.id })
+                    }
+                    onDragEnd={handleDragEnd}
+                    onDragEnter={(e) => handleEndpointDragEnter(e, ep.id)}
+                    onDragOver={(e) => handleEndpointDragOver(e, ep.id)}
+                    onDragLeave={(e) => handleEndpointDragLeave(e, ep.id)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Drop zone: drag here to move to root level */}
+        {!normalizedSearchQuery && (
         <div
           className={cn(
             "flex-1 min-h-[48px]",
@@ -612,14 +678,53 @@ export function EndpointSidebar({
             }
           }}
         />
+        )}
 
-        {rootFolders.length === 0 && rootEndpoints.length === 0 && (
+        {!normalizedSearchQuery && rootFolders.length === 0 && rootEndpoints.length === 0 && (
           <p className="px-2 py-4 text-center text-sm text-zinc-400">
             暂无接口，点击上方按钮创建
           </p>
         )}
       </div>
     </div>
+  );
+}
+
+function SearchResultRow({
+  ep,
+  folderName,
+  isSelected,
+  onSelect,
+}: {
+  ep: Endpoint;
+  folderName: string;
+  isSelected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "flex w-full min-w-0 items-start gap-2 rounded px-2 py-2 text-left text-sm",
+        isSelected
+          ? "bg-zinc-100 dark:bg-zinc-800"
+          : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+      )}
+    >
+      <MethodBadge method={ep.method} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-zinc-800 dark:text-zinc-200">
+          {ep.name || ep.path}
+        </span>
+        <span className="mt-0.5 block truncate font-mono text-[11px] text-zinc-500">
+          {ep.path}
+        </span>
+        <span className="mt-0.5 block truncate text-[11px] text-zinc-400">
+          {folderName}
+        </span>
+      </span>
+    </button>
   );
 }
 
