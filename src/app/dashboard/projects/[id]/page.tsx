@@ -102,6 +102,7 @@ export default function ProjectPage() {
     null,
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
 
   // Create folder dialog
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
@@ -132,6 +133,14 @@ export default function ProjectPage() {
   useEffect(() => {
     fetchProject();
   }, [fetchProject]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const updateIsDesktop = () => setIsDesktop(mediaQuery.matches);
+    updateIsDesktop();
+    mediaQuery.addEventListener("change", updateIsDesktop);
+    return () => mediaQuery.removeEventListener("change", updateIsDesktop);
+  }, []);
 
   const handleReorder = async (
     folderUpdates: Array<{
@@ -441,7 +450,7 @@ export default function ProjectPage() {
       {/* Main content */}
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row">
         {/* Sidebar */}
-        <div className="h-[38dvh] min-h-0 flex-shrink-0 border-b border-zinc-200 md:h-auto md:w-72 md:border-b-0">
+        <div className="min-h-0 flex-1 border-b border-zinc-200 md:h-auto md:w-72 md:flex-none md:border-b-0">
           <EndpointSidebar
             folders={project.folders}
             endpoints={allEndpoints}
@@ -461,7 +470,7 @@ export default function ProjectPage() {
         </div>
 
         {/* Detail */}
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="hidden min-h-0 flex-1 overflow-hidden md:block">
           {selectedEndpoint ? (
             <EndpointDetail
               key={selectedEndpoint.id}
@@ -478,6 +487,26 @@ export default function ProjectPage() {
           )}
         </div>
       </div>
+
+
+      {/* Mobile Endpoint Detail */}
+      {!isDesktop && selectedEndpoint && (
+        <Dialog open onOpenChange={(open) => !open && setSelectedEndpointId(null)}>
+          <DialogContent className="h-[92dvh] max-w-[calc(100vw-1rem)] overflow-hidden p-0 md:hidden">
+            <DialogHeader className="sr-only">
+              <DialogTitle>{selectedEndpoint.name || selectedEndpoint.path}</DialogTitle>
+            </DialogHeader>
+            <EndpointDetail
+              key={`mobile-${selectedEndpoint.id}`}
+              endpoint={selectedEndpoint}
+              projectBaseUrl={project.baseUrl}
+              globalHeaders={project.globalHeaders ?? []}
+              globalParams={project.globalParams ?? []}
+              onSave={handleSaveEndpoint}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Project Settings */}
       {settingsOpen && (

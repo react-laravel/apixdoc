@@ -90,14 +90,14 @@ export default function ProjectsPage() {
       ) : projects.length === 0 ? (
         <p className="text-zinc-500">暂无项目，请先进入组织创建项目</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+          <table className="min-w-[760px] w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
-                <th className="px-4 py-3 text-left font-medium">项目</th>
-                <th className="px-4 py-3 text-left font-medium">组织</th>
-                <th className="px-4 py-3 text-left font-medium">状态</th>
-                <th className="px-4 py-3 text-left font-medium">内容</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium">项目</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium">组织</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium">状态</th>
+                <th className="whitespace-nowrap px-4 py-3 text-left font-medium">内容</th>
               </tr>
             </thead>
             <tbody>
@@ -106,7 +106,7 @@ export default function ProjectsPage() {
                   key={project.id}
                   className="border-b border-zinc-100 last:border-b-0 dark:border-zinc-800"
                 >
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     <Link
                       href={`/dashboard/projects/${project.id}`}
                       className="font-medium hover:underline"
@@ -114,12 +114,12 @@ export default function ProjectsPage() {
                       {project.name}
                     </Link>
                     {project.description && (
-                      <p className="mt-1 line-clamp-1 text-xs text-zinc-500">
+                      <p className="mt-1 max-w-[360px] truncate text-xs text-zinc-500">
                         {project.description}
                       </p>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+                  <td className="whitespace-nowrap px-4 py-3 text-zinc-600 dark:text-zinc-400">
                     <Link
                       href={`/dashboard/organizations/${project.organization.id}`}
                       className="hover:underline"
@@ -127,13 +127,13 @@ export default function ProjectsPage() {
                       {project.organization.name}
                     </Link>
                   </td>
-                  <td className="px-4 py-3">
+                  <td className="whitespace-nowrap px-4 py-3">
                     <Badge variant="outline" className="text-[10px]">
                       {project.isPublic ? "公开" : "私有"}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                  <td className="whitespace-nowrap px-4 py-3">
+                    <div className="flex flex-nowrap gap-2">
                       <Badge variant="secondary">
                         {project._count.folders} 个文件夹
                       </Badge>
