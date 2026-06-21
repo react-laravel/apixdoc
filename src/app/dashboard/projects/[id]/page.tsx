@@ -426,12 +426,15 @@ export default function ProjectPage() {
 
   return (
     <div
-      className="flex flex-col -m-6"
-      style={{ height: "calc(100vh - 3.5rem)" }}
+      className="-m-3 flex flex-col sm:-m-6"
+      style={{ minHeight: "calc(100vh - 3.5rem)" }}
     >
       {/* Top bar */}
-      <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
-        <h1 className="text-lg font-semibold">{project.name}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2 sm:px-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="min-w-0">
+          <h1 className="truncate text-base font-semibold sm:text-lg">{project.name}</h1>
+          <p className="truncate text-xs text-zinc-500 sm:hidden">{project.baseUrl}</p>
+        </div>
         <Button variant="ghost" size="sm" onClick={() => setSettingsOpen(true)}>
           <Settings className="mr-1 h-4 w-4" />
           设置
@@ -439,9 +442,9 @@ export default function ProjectPage() {
       </div>
 
       {/* Main content */}
-      <div className="flex flex-1 overflow-hidden min-h-0">
+      <div className="flex flex-1 min-h-0 flex-col overflow-hidden md:flex-row">
         {/* Sidebar */}
-        <div className="w-64 flex-shrink-0 h-full">
+        <div className="h-[42vh] min-h-[260px] flex-shrink-0 border-b border-zinc-200 md:h-auto md:w-72 md:border-b-0">
           <EndpointSidebar
             folders={project.folders}
             endpoints={allEndpoints}
@@ -461,7 +464,7 @@ export default function ProjectPage() {
         </div>
 
         {/* Detail */}
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           {selectedEndpoint ? (
             <EndpointDetail
               key={selectedEndpoint.id}
@@ -472,7 +475,7 @@ export default function ProjectPage() {
               onSave={handleSaveEndpoint}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-zinc-400">
+            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-zinc-400">
               选择一个接口查看详情，或创建新接口
             </div>
           )}
@@ -544,7 +547,7 @@ export default function ProjectPage() {
                 placeholder="如：获取用户列表"
               />
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-sm font-medium">方法</label>
                 <Select
@@ -563,7 +566,7 @@ export default function ProjectPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="col-span-2">
+              <div className="sm:col-span-2">
                 <label className="mb-1 block text-sm font-medium">路径</label>
                 <Input
                   value={endpointPath}

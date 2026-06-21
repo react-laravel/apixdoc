@@ -417,7 +417,7 @@ export function EndpointSidebar({
           onDragOver={(e) => handleFolderDragOver(e, folder.id)}
           onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
           className={cn(
-            "flex w-full items-center gap-1 rounded py-1.5 text-sm cursor-grab active:cursor-grabbing transition-colors duration-75",
+            "flex w-full items-center gap-1 rounded py-2 text-sm cursor-grab active:cursor-grabbing transition-colors duration-75 sm:py-1.5",
             "hover:bg-zinc-100 dark:hover:bg-zinc-800",
             isInsideTarget && folderInsideHighlight,
           )}
@@ -506,13 +506,13 @@ export function EndpointSidebar({
   };
 
   return (
-    <div className="flex h-full flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800">
+    <div className="flex h-full flex-col bg-white md:border-r md:border-zinc-200 dark:bg-zinc-900 md:dark:border-zinc-800">
+      <div className="flex items-center gap-2 overflow-x-auto border-b border-zinc-200 p-2 sm:p-3 dark:border-zinc-800">
         <Button
           variant="outline"
           size="sm"
           onClick={onCreateFolder}
-          className="flex-1 text-xs"
+          className="min-w-20 flex-1 text-xs"
         >
           <Plus className="mr-1 h-3 w-3" />
           文件夹
@@ -521,7 +521,7 @@ export function EndpointSidebar({
           variant="outline"
           size="sm"
           onClick={() => onCreateEndpoint(null)}
-          className="flex-1 text-xs"
+          className="min-w-20 flex-1 text-xs"
         >
           <Plus className="mr-1 h-3 w-3" />
           接口
@@ -549,7 +549,7 @@ export function EndpointSidebar({
       </div>
 
       <div
-        className="flex-1 overflow-y-auto p-2 flex flex-col"
+        className="flex flex-1 flex-col overflow-y-auto overscroll-contain p-2"
         onDragOver={(e) => {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
@@ -666,7 +666,7 @@ function EndpointRow({
         onDragLeave={onDragLeave}
         onClick={onSelect}
         className={cn(
-          "flex w-full items-center gap-1 rounded py-1.5 text-sm cursor-grab active:cursor-grabbing",
+          "flex w-full items-center gap-1 rounded py-2 text-sm cursor-grab active:cursor-grabbing sm:py-1.5",
           isSelected
             ? "bg-zinc-100 dark:bg-zinc-800"
             : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",

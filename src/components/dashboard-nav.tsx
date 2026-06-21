@@ -16,16 +16,16 @@ interface DashboardNavProps {
 export function DashboardNav({ user }: DashboardNavProps) {
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex h-14 items-center justify-between px-6">
+      <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-6">
         <Link
           href="/dashboard"
-          className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-50"
+          className="text-base font-bold tracking-tight text-zinc-900 sm:text-lg dark:text-zinc-50"
         >
           ApiX Docs
         </Link>
 
-        <div className="flex items-center gap-4">
-          <nav className="flex items-center gap-1">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 sm:gap-4">
+          <nav className="flex items-center gap-1 overflow-x-auto">
             <Link href="/dashboard">
               <Button variant="ghost" size="sm">
                 组织管理
@@ -46,7 +46,7 @@ export function DashboardNav({ user }: DashboardNavProps) {
             </Link>
           )}
 
-          <div className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
+          <div className="hidden items-center gap-2 text-sm text-zinc-600 sm:flex dark:text-zinc-400">
             <span>{user.name}</span>
             <Badge variant="secondary" className="text-[10px]">
               {user.role}

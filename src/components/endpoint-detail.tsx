@@ -276,17 +276,17 @@ export function EndpointDetail({
   const hasBody = ["POST", "PUT", "PATCH"].includes(method.toUpperCase());
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="mb-4 flex items-center gap-3">
+    <div className="min-w-0 flex-1 overflow-y-auto p-3 sm:p-6">
+      <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
         <MethodBadge method={method} />
-        <span className="font-mono text-sm text-zinc-600 dark:text-zinc-400">
+        <span className="min-w-0 break-all font-mono text-xs text-zinc-600 sm:text-sm dark:text-zinc-400">
           {path}
         </span>
-        <span className="text-lg font-semibold">{name}</span>
+        <span className="min-w-0 break-words text-base font-semibold sm:text-lg">{name}</span>
       </div>
 
       <Tabs defaultValue="basic">
-        <TabsList>
+        <TabsList className="w-full justify-start overflow-x-auto">
           <TabsTrigger value="basic">基本信息</TabsTrigger>
           <TabsTrigger value="params">请求参数</TabsTrigger>
           <TabsTrigger value="body">请求体</TabsTrigger>
@@ -296,7 +296,7 @@ export function EndpointDetail({
 
         {/* Basic Info */}
         <TabsContent value="basic" className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium">
                 请求方法
@@ -459,7 +459,7 @@ export function EndpointDetail({
               Content-Type
             </label>
             <Select value={bodyContentType} onValueChange={setBodyContentType}>
-              <SelectTrigger className="w-64">
+              <SelectTrigger className="w-full sm:w-64">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -508,9 +508,9 @@ export function EndpointDetail({
           {responses.map((r, i) => (
             <div
               key={i}
-              className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+              className="space-y-3 rounded-lg border border-zinc-200 p-3 sm:p-4 dark:border-zinc-800"
             >
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <div>
                   <label className="mb-1 block text-xs font-medium">
                     状态码
@@ -521,7 +521,7 @@ export function EndpointDetail({
                     onChange={(e) =>
                       updateResponse(i, "statusCode", parseInt(e.target.value) || 0)
                     }
-                    className="h-8 w-24 text-xs"
+                    className="h-8 w-full text-xs sm:w-24"
                   />
                 </div>
                 <div className="flex-1">
@@ -559,7 +559,7 @@ export function EndpointDetail({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="mt-5"
+                  className="sm:mt-5"
                   onClick={() => removeResponse(i)}
                 >
                   删除
@@ -593,11 +593,11 @@ export function EndpointDetail({
           {/* URL */}
           <div>
             <label className="mb-1 block text-sm font-medium">请求 URL</label>
-            <div className="flex items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs sm:text-sm dark:border-zinc-800 dark:bg-zinc-900">
               <Badge variant="secondary" className="text-xs">
                 {method}
               </Badge>
-              <span className="text-zinc-600 dark:text-zinc-400">
+              <span className="min-w-0 break-all text-zinc-600 dark:text-zinc-400">
                 {projectBaseUrl}
                 {path}
               </span>
@@ -614,7 +614,7 @@ export function EndpointDetail({
             </div>
             <div className="space-y-2">
               {testHeaders.map((h, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     placeholder="Key"
                     value={h.key}
@@ -652,7 +652,7 @@ export function EndpointDetail({
             </div>
             <div className="space-y-2">
               {testQueryParams.map((p, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="flex flex-col gap-2 sm:flex-row">
                   <Input
                     placeholder="Key"
                     value={p.key}
@@ -711,7 +711,7 @@ export function EndpointDetail({
           {/* Response */}
           {testResponse && (
             <div className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 <Badge
                   variant={
                     testResponse.status >= 200 && testResponse.status < 300
@@ -730,7 +730,7 @@ export function EndpointDetail({
                 <label className="mb-1 block text-xs font-medium text-zinc-500">
                   响应头
                 </label>
-                <pre className="max-h-32 overflow-auto rounded bg-zinc-50 p-2 font-mono text-xs dark:bg-zinc-900">
+                <pre className="max-h-32 max-w-full overflow-auto rounded bg-zinc-50 p-2 font-mono text-xs dark:bg-zinc-900">
                   {JSON.stringify(testResponse.headers, null, 2)}
                 </pre>
               </div>
@@ -739,7 +739,7 @@ export function EndpointDetail({
                 <label className="mb-1 block text-xs font-medium text-zinc-500">
                   响应体
                 </label>
-                <pre className="max-h-96 overflow-auto rounded bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-900">
+                <pre className="max-h-96 max-w-full overflow-auto rounded bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-900">
                   {(() => {
                     try {
                       return JSON.stringify(
