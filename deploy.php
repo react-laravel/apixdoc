@@ -37,6 +37,9 @@ for file in .env .env.local .env.production .env.production.local .npmrc; do
     cp "{{deploy_path}}/$file" "{{release_path}}/$file"
   fi
 done
+if [ ! -f "{{release_path}}/.env" ] && [ -f "{{release_path}}/.env.production" ]; then
+  cp "{{release_path}}/.env.production" "{{release_path}}/.env"
+fi
 '
 BASH);
 });
