@@ -126,7 +126,7 @@ export async function DELETE(
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -147,11 +147,19 @@ export async function DELETE(
     ) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
-    const body = await request.json();
+    let body: { userId?: string };
+    try {
+      body = (await request.json()) as { userId?: string };
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "userId is required in request body" },
+        { status: 400 },
+      );
+    }
     const { userId } = body;
 
     if (!userId) {

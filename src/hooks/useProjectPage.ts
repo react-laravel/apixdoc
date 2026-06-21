@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams } from "next/navigation";
+import { apiFetch } from "@/lib/api-fetch";
 import {
   type Project,
   type Folder,
@@ -21,13 +22,10 @@ export function useProjectPage() {
 
   const fetchProject = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projects/${params.id}`);
-      const json = await res.json();
-      if (json.success) {
-        setProject(json.data);
-      }
+      const data = await apiFetch<Project>(`/api/projects/${params.id}`);
+      setProject(data);
     } catch {
-      // handled silently
+      // network error — will retry on next navigation
     } finally {
       setLoading(false);
     }
@@ -37,132 +35,140 @@ export function useProjectPage() {
     fetchProject();
   }, [fetchProject]);
 
-  // Recursively collect endpoints from all folders (including nested)
-  const collectFolderEndpoints = (folders: Folder[]): Endpoint[] =>
-    folders.flatMap((f) => [
-      ...(f.endpoints ?? []),
-      ...collectFolderEndpoints(f.children ?? []),
-    ]);
+  // Memoize to avoid re-creating arrays on every render
+  const allEndpoints = useMemo(() => {
+    if (!project) return [];
+    const collect = (folders: Folder[]): Endpoint[] =>
+      folders.flatMap((f) => [
+        ...(f.endpoints ?? []),
+        ...collect(f.children ?? []),
+      ]);
+    return [...project.endpoints, ...collect(project.folders)];
+  }, [project]);
 
-  const allEndpoints = project
-    ? [...project.endpoints, ...collectFolderEndpoints(project.folders)]
-    : [];
-
-  const selectedEndpoint = allEndpoints.find(
-    (ep) => ep.id === selectedEndpointId,
+  const selectedEndpoint = useMemo(
+    () => allEndpoints.find((ep) => ep.id === selectedEndpointId) ?? null,
+    [allEndpoints, selectedEndpointId],
   );
 
-  const handleSelectEndpoint = (id: string | null) => {
-    setSaveError(null);
-    setSelectedEndpointId(id);
-  };
+  const handleSelectEndpoint = useCallback(
+    (id: string | null) => {
+      setSaveError(null);
+      setSelectedEndpointId(id);
+    },
+    [],
+  );
 
-  const handleReorder = async (
-    folderUpdates: FolderUpdate[],
-    endpointUpdates: EndpointUpdate[],
-  ) => {
-    if (!project) return;
+  const handleReorder = useCallback(
+    async (
+      folderUpdates: FolderUpdate[],
+      endpointUpdates: EndpointUpdate[],
+    ) => {
+      if (!project) return;
 
-    try {
-      await fetch(`/api/projects/${project.id}/reorder`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          folders: folderUpdates.length > 0 ? folderUpdates : undefined,
-          endpoints: endpointUpdates.length > 0 ? endpointUpdates : undefined,
-        }),
-      });
+      try {
+        await apiFetch(`/api/projects/${project.id}/reorder`, {
+          method: "POST",
+          body: JSON.stringify({
+            folders: folderUpdates.length > 0 ? folderUpdates : undefined,
+            endpoints: endpointUpdates.length > 0 ? endpointUpdates : undefined,
+          }),
+        });
+      } catch {
+        // network error — refetch to get server state
+      }
       await fetchProject();
-    } catch {
-      await fetchProject();
-    }
-  };
+    },
+    [project, fetchProject],
+  );
 
-  const handleCreateFolder = async (name: string) => {
-    if (!project) return;
+  const handleCreateFolder = useCallback(
+    async (name: string): Promise<string | null> => {
+      if (!project) return null;
 
-    const normalizedName = name.trim();
-    if (!normalizedName) return;
+      const normalizedName = name.trim();
+      if (!normalizedName) return null;
 
-    const exists = project.folders.some(
-      (folder) => folder.name.trim().toLowerCase() === normalizedName.toLowerCase(),
-    );
-    if (exists) {
-      return "文件夹名称不能重复";
-    }
+      const exists = project.folders.some(
+        (folder) => folder.name.trim().toLowerCase() === normalizedName.toLowerCase(),
+      );
+      if (exists) return "文件夹名称不能重复";
 
-    try {
-      const res = await fetch("/api/folders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: normalizedName, projectId: project.id }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setProject((prev) =>
-          prev ? { ...prev, folders: [...prev.folders, json.data] } : prev,
+      try {
+        const data = await apiFetch<{ id: string; name: string }>(
+          "/api/folders",
+          {
+            method: "POST",
+            body: JSON.stringify({ name: normalizedName, projectId: project.id }),
+          },
         );
-      } else {
-        return json.error || "创建文件夹失败";
+        setProject((prev) =>
+          prev
+            ? {
+                ...prev,
+                folders: [...prev.folders, { id: data.id, name: data.name }],
+              }
+            : prev,
+        );
+        return null;
+      } catch {
+        return "创建文件夹失败";
       }
-    } catch {
-      return "创建文件夹失败";
-    }
-    return null;
-  };
+    },
+    [project],
+  );
 
-  const handleDeleteFolder = async (folderId: string) => {
-    if (!project) return;
+  const handleDeleteFolder = useCallback(
+    async (folderId: string) => {
+      if (!project) return;
 
-    if (!window.confirm("确定要删除此文件夹吗？子文件夹也会被删除。")) {
-      return false;
-    }
+      if (!window.confirm("确定要删除此文件夹吗？子文件夹也会被删除。")) {
+        return false;
+      }
 
-    try {
-      const res = await fetch(`/api/folders/${folderId}`, {
-        method: "DELETE",
-      });
-      const json = await res.json();
-      if (json.success) {
-        if (selectedEndpointId) {
-          const deletedFolderIds = new Set<string>();
-          const collectDeletedFolderIds = (parentId: string) => {
-            deletedFolderIds.add(parentId);
-            project.folders
-              .filter((folder) => folder.parentId === parentId)
-              .forEach((folder) => collectDeletedFolderIds(folder.id));
-          };
-          collectDeletedFolderIds(folderId);
+      try {
+        await apiFetch(`/api/folders/${folderId}`, { method: "DELETE" });
+      } catch {
+        // network error — refetch to recover
+      }
 
-          const selectedEndpoint = allEndpoints.find(
-            (endpoint) => endpoint.id === selectedEndpointId,
-          );
-          if (
-            selectedEndpoint?.folderId &&
-            deletedFolderIds.has(selectedEndpoint.folderId)
-          ) {
-            setSelectedEndpointId(null);
-          }
+      // Snapshot the endpoint list before refetch
+      const endpointsBefore = allEndpoints;
+      if (selectedEndpointId) {
+        const deletedFolderIds = new Set<string>();
+        const collectDeletedFolderIds = (parentId: string) => {
+          deletedFolderIds.add(parentId);
+          project.folders
+            .filter((folder) => folder.parentId === parentId)
+            .forEach((folder) => collectDeletedFolderIds(folder.id));
+        };
+        collectDeletedFolderIds(folderId);
+
+        const selectedEndpoint = endpointsBefore.find(
+          (ep) => ep.id === selectedEndpointId,
+        );
+        if (
+          selectedEndpoint?.folderId &&
+          deletedFolderIds.has(selectedEndpoint.folderId)
+        ) {
+          setSelectedEndpointId(null);
         }
-        await fetchProject();
       }
-      return true;
-    } catch {
-      await fetchProject();
-      return false;
-    }
-  };
 
-  const handleRenameFolder = async (folderId: string, newName: string) => {
-    if (!project) return;
-    try {
-      const res = await fetch(`/api/folders/${folderId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName }),
-      });
-      const json = await res.json();
-      if (json.success) {
+      await fetchProject();
+      return true;
+    },
+    [project, allEndpoints, selectedEndpointId, fetchProject],
+  );
+
+  const handleRenameFolder = useCallback(
+    async (folderId: string, newName: string) => {
+      if (!project) return;
+      try {
+        await apiFetch(`/api/folders/${folderId}`, {
+          method: "PUT",
+          body: JSON.stringify({ name: newName }),
+        });
         setProject((prev) =>
           prev
             ? {
@@ -173,186 +179,175 @@ export function useProjectPage() {
               }
             : prev,
         );
+      } catch {
+        // network error — no dedicated UI for rename failures
       }
-    } catch {
-      // handled silently
-    }
-  };
+    },
+    [project],
+  );
 
-  const handleCreateEndpoint = async (data: {
-    name: string;
-    method: string;
-    path: string;
-    description: string;
-    folderId: string | null;
-  }): Promise<{ error?: string }> => {
-    if (!data.path.trim() || !project) {
-      return { error: "请填写接口路径" };
-    }
+  const handleCreateEndpoint = useCallback(
+    async (data: {
+      name: string;
+      method: string;
+      path: string;
+      description: string;
+      folderId: string | null;
+    }): Promise<{ error?: string }> => {
+      if (!data.path.trim() || !project) {
+        return { error: "请填写接口路径" };
+      }
 
-    try {
-      const res = await fetch("/api/endpoints", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: data.name,
-          method: data.method,
-          path: data.path,
-          description: data.description,
-          projectId: project.id,
-          folderId: data.folderId,
-        }),
-      });
-      const json = await res.json();
-      if (json.success) {
+      try {
+        const created = await apiFetch<Endpoint>("/api/endpoints", {
+          method: "POST",
+          body: JSON.stringify({
+            name: data.name,
+            method: data.method,
+            path: data.path,
+            description: data.description,
+            projectId: project.id,
+            folderId: data.folderId,
+          }),
+        });
         setProject((prev) =>
-          prev ? { ...prev, endpoints: [...prev.endpoints, json.data] } : prev,
+          prev ? { ...prev, endpoints: [...prev.endpoints, created] } : prev,
         );
         return { error: undefined };
+      } catch (err) {
+        return { error: err instanceof Error ? err.message : "创建接口失败" };
       }
-      return { error: json.error || "创建接口失败" };
-    } catch {
-      return { error: "创建接口失败" };
-    }
-  };
+    },
+    [project],
+  );
 
-  const handleSaveEndpoint = async (data: Partial<Endpoint>) => {
-    if (!project || !selectedEndpointId) return;
+  const handleSaveEndpoint = useCallback(
+    async (data: Partial<Endpoint>) => {
+      if (!project || !selectedEndpointId) return;
 
-    setSaveError(null);
+      setSaveError(null);
 
-    try {
-      if (data.parameters) {
-        const res = await fetch(
-          `/api/endpoints/${selectedEndpointId}/params`,
+      try {
+        if (data.parameters) {
+          const updated = await apiFetch<Endpoint["parameters"]>(
+            `/api/endpoints/${selectedEndpointId}/params`,
+            {
+              method: "POST",
+              body: JSON.stringify({ params: data.parameters }),
+            },
+          );
+          setProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  endpoints: prev.endpoints.map((ep) =>
+                    ep.id === selectedEndpointId
+                      ? { ...ep, parameters: updated }
+                      : ep,
+                  ),
+                }
+              : prev,
+          );
+          return;
+        }
+
+        if (data.requestBody) {
+          const updated = await apiFetch<Endpoint["requestBody"]>(
+            `/api/endpoints/${selectedEndpointId}/body`,
+            {
+              method: "POST",
+              body: JSON.stringify(data.requestBody),
+            },
+          );
+          setProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  endpoints: prev.endpoints.map((ep) =>
+                    ep.id === selectedEndpointId
+                      ? { ...ep, requestBody: updated }
+                      : ep,
+                  ),
+                }
+              : prev,
+          );
+          return;
+        }
+
+        if (data.responses) {
+          const updated = await apiFetch<Endpoint["responses"]>(
+            `/api/endpoints/${selectedEndpointId}/responses`,
+            {
+              method: "POST",
+              body: JSON.stringify({ responses: data.responses }),
+            },
+          );
+          setProject((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  endpoints: prev.endpoints.map((ep) =>
+                    ep.id === selectedEndpointId
+                      ? { ...ep, responses: updated }
+                      : ep,
+                  ),
+                }
+              : prev,
+          );
+          return;
+        }
+
+        // Basic info — only send defined fields
+        const payload = Object.fromEntries(
+          Object.entries(data).filter(([, v]) => v !== undefined),
+        );
+        const updated = await apiFetch<Endpoint>(
+          `/api/endpoints/${selectedEndpointId}`,
           {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ params: data.parameters }),
+            method: "PUT",
+            body: JSON.stringify(payload),
           },
         );
-        const json = await res.json();
-        if (!json.success) {
-          setSaveError(json.error || "保存参数失败");
-          return;
-        }
         setProject((prev) =>
           prev
             ? {
                 ...prev,
                 endpoints: prev.endpoints.map((ep) =>
                   ep.id === selectedEndpointId
-                    ? { ...ep, parameters: json.data }
+                    ? { ...ep, ...updated }
                     : ep,
                 ),
               }
             : prev,
         );
-        return;
-      }
-
-      if (data.requestBody) {
-        const res = await fetch(`/api/endpoints/${selectedEndpointId}/body`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data.requestBody),
-        });
-        const json = await res.json();
-        if (!json.success) {
-          setSaveError(json.error || "保存请求体失败");
-          return;
-        }
-        setProject((prev) =>
-          prev
-            ? {
-                ...prev,
-                endpoints: prev.endpoints.map((ep) =>
-                  ep.id === selectedEndpointId
-                    ? { ...ep, requestBody: json.data }
-                    : ep,
-                ),
-              }
-            : prev,
+      } catch (err) {
+        setSaveError(
+          err instanceof Error ? err.message : "网络错误，请稍后重试",
         );
-        return;
       }
+    },
+    [project, selectedEndpointId],
+  );
 
-      if (data.responses) {
-        const res = await fetch(
-          `/api/endpoints/${selectedEndpointId}/responses`,
+  const handleSaveSettings = useCallback(
+    async (data: Partial<Project>) => {
+      if (!project) return;
+
+      try {
+        const updated = await apiFetch<Partial<Project>>(
+          `/api/projects/${project.id}`,
           {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ responses: data.responses }),
+            method: "PUT",
+            body: JSON.stringify(data),
           },
         );
-        const json = await res.json();
-        if (!json.success) {
-          setSaveError(json.error || "保存响应失败");
-          return;
-        }
-        setProject((prev) =>
-          prev
-            ? {
-                ...prev,
-                endpoints: prev.endpoints.map((ep) =>
-                  ep.id === selectedEndpointId
-                    ? { ...ep, responses: json.data }
-                    : ep,
-                ),
-              }
-            : prev,
-        );
-        return;
+        setProject((prev) => (prev ? { ...prev, ...updated } : prev));
+      } catch {
+        // network error
       }
-
-      const res = await fetch(`/api/endpoints/${selectedEndpointId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      const json = await res.json();
-      if (!json.success) {
-        setSaveError(json.error || "保存失败");
-        return;
-      }
-      const updatedFields = Object.fromEntries(
-        Object.entries(json.data).filter(([, v]) => v !== undefined),
-      );
-      setProject((prev) =>
-        prev
-          ? {
-              ...prev,
-              endpoints: prev.endpoints.map((ep) =>
-                ep.id === selectedEndpointId
-                  ? { ...ep, ...updatedFields }
-                  : ep,
-              ),
-            }
-          : prev,
-      );
-    } catch {
-      setSaveError("网络错误，请稍后重试");
-    }
-  };
-
-  const handleSaveSettings = async (data: Partial<Project>) => {
-    if (!project) return;
-
-    try {
-      const res = await fetch(`/api/projects/${project.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setProject((prev) => (prev ? { ...prev, ...json.data } : prev));
-      }
-    } catch {
-      // handled silently
-    }
-  };
+    },
+    [project],
+  );
 
   return {
     project,
@@ -361,6 +356,7 @@ export function useProjectPage() {
     selectedEndpoint,
     allEndpoints,
     saveError,
+    setSaveError,
     fetchProject,
     handleSelectEndpoint,
     handleReorder,
@@ -370,6 +366,5 @@ export function useProjectPage() {
     handleCreateEndpoint,
     handleSaveEndpoint,
     handleSaveSettings,
-    setSaveError,
   };
 }

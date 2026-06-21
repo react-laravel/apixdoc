@@ -21,30 +21,15 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-
-interface Organization {
-  id: string;
-  name: string;
-  description: string;
-  members: Array<{
-    id: string;
-    user: { id: string; email: string; name: string };
-    role: string;
-  }>;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  isPublic: boolean;
-}
+import { apiFetch } from "@/lib/api-fetch";
+import type { Organization, Project } from "@/lib/types";
 
 export default function OrganizationDetailPage() {
   const params = useParams<{ id: string }>();
   const [org, setOrg] = useState<Organization | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [memberEmail, setMemberEmail] = useState("");
@@ -55,18 +40,16 @@ export default function OrganizationDetailPage() {
   const [projectDesc, setProjectDesc] = useState("");
 
   const fetchData = useCallback(async () => {
+    setError(null);
     try {
-      const [orgRes, projRes] = await Promise.all([
-        fetch(`/api/organizations/${params.id}`),
-        fetch(`/api/projects?organizationId=${params.id}`),
+      const [orgData, projData] = await Promise.all([
+        apiFetch<Organization>(`/api/organizations/${params.id}`),
+        apiFetch<Project[]>(`/api/projects?organizationId=${params.id}`),
       ]);
-      const orgJson = await orgRes.json();
-      const projJson = await projRes.json();
-
-      if (orgJson.success) setOrg(orgJson.data);
-      if (projJson.success) setProjects(projJson.data);
-    } catch {
-      // handled silently
+      setOrg(orgData);
+      setProjects(projData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setLoading(false);
     }
@@ -80,22 +63,21 @@ export default function OrganizationDetailPage() {
     if (!memberEmail.trim()) return;
 
     try {
-      const res = await fetch(`/api/organizations/${params.id}/members`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: memberEmail, role: memberRole }),
-      });
-      const json = await res.json();
-      if (json.success) {
-        setOrg((prev) =>
-          prev ? { ...prev, members: [...prev.members, json.data] } : prev
-        );
-        setMemberDialogOpen(false);
-        setMemberEmail("");
-        setMemberRole("member");
-      }
+      const member = await apiFetch<Organization["members"][0]>(
+        `/api/organizations/${params.id}/members`,
+        {
+          method: "POST",
+          body: JSON.stringify({ email: memberEmail, role: memberRole }),
+        },
+      );
+      setOrg((prev) =>
+        prev ? { ...prev, members: [...prev.members, member] } : prev,
+      );
+      setMemberDialogOpen(false);
+      setMemberEmail("");
+      setMemberRole("member");
     } catch {
-      // handled silently
+      // no dedicated error UI for member add
     }
   };
 
@@ -103,24 +85,20 @@ export default function OrganizationDetailPage() {
     if (!projectName.trim()) return;
 
     try {
-      const res = await fetch("/api/projects", {
+      const created = await apiFetch<Project>("/api/projects", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: projectName,
           description: projectDesc,
           organizationId: params.id,
         }),
       });
-      const json = await res.json();
-      if (json.success) {
-        setProjects((prev) => [...prev, json.data]);
-        setProjectDialogOpen(false);
-        setProjectName("");
-        setProjectDesc("");
-      }
+      setProjects((prev) => [...prev, created]);
+      setProjectDialogOpen(false);
+      setProjectName("");
+      setProjectDesc("");
     } catch {
-      // handled silently
+      // no dedicated error UI for project create
     }
   };
 
@@ -129,7 +107,14 @@ export default function OrganizationDetailPage() {
   }
 
   if (!org) {
-    return <p className="text-zinc-500">组织不存在</p>;
+    return (
+      <div className="mx-auto max-w-4xl space-y-8">
+        {error && (
+          <p className="text-sm text-red-500">{error}</p>
+        )}
+        <p className="text-zinc-500">组织不存在</p>
+      </div>
+    );
   }
 
   return (
@@ -140,6 +125,12 @@ export default function OrganizationDetailPage() {
           <p className="mt-1 text-zinc-500">{org.description}</p>
         )}
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Members */}
       <section>
@@ -294,10 +285,7 @@ export default function OrganizationDetailPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setProjectDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setProjectDialogOpen(false)}>
               取消
             </Button>
             <Button onClick={handleCreateProject}>创建</Button>

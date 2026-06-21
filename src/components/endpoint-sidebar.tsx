@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MethodBadge } from "@/components/method-badge";
@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import {
   ChevronDown,
   ChevronRight,
-  ChevronsUpDown,
   Folder,
   FolderPlus,
   FilePlus,
@@ -22,29 +21,14 @@ import {
   FoldVertical,
   UnfoldVertical,
 } from "lucide-react";
-
-interface Endpoint {
-  id: string;
-  name: string;
-  method: string;
-  path: string;
-  folderId: string | null;
-}
-
-interface FolderItem {
-  id: string;
-  name: string;
-  parentId?: string | null;
-}
-
-type DragItem =
-  | { type: "folder"; id: string }
-  | { type: "endpoint"; id: string };
-
-type DropTarget =
-  | { type: "folder"; id: string; position: "before" | "after" | "inside" }
-  | { type: "endpoint"; id: string; position: "before" | "after" }
-  | { type: "root" };
+import type {
+  FolderUpdate,
+  EndpointUpdate,
+  SidebarEndpoint as Endpoint,
+  SidebarFolder as FolderItem,
+  DragItem,
+  DropTarget,
+} from "@/lib/types";
 
 interface EndpointSidebarProps {
   folders: FolderItem[];
@@ -56,8 +40,8 @@ interface EndpointSidebarProps {
   onDeleteFolder: (folderId: string) => void;
   onRenameFolder: (folderId: string, newName: string) => void;
   onReorder: (
-    folders: Array<{ id: string; order: number; parentId?: string | null }>,
-    endpoints: Array<{ id: string; order: number; folderId: string | null }>,
+    folders: FolderUpdate[],
+    endpoints: EndpointUpdate[],
   ) => void;
 }
 
@@ -73,13 +57,18 @@ export function EndpointSidebar({
   onReorder,
 }: EndpointSidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [allCollapsed, setAllCollapsed] = useState(false);
   const [dragItem, setDragItem] = useState<DragItem | null>(null);
   const [dropTarget, setDropTargetState] = useState<DropTarget | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Derived: allCollapsed is computed from collapsed + folders, not stored
+  const allCollapsed = useMemo(
+    () => folders.length > 0 && folders.every((f) => collapsed[f.id]),
+    [folders, collapsed],
+  );
 
   // Use ref to avoid stale closure issues in drag event handlers
   const dropTargetRef = useRef<DropTarget | null>(null);
@@ -94,15 +83,11 @@ export function EndpointSidebar({
   const toggleFolder = (folderId: string) => {
     setCollapsed((prev) => {
       const next = { ...prev, [folderId]: !prev[folderId] };
-      // If any folder is expanded, mark allCollapsed as false
-      const allCollapsedNow = folders.every((f) => next[f.id]);
-      setAllCollapsed(allCollapsedNow);
       return next;
     });
   };
 
   const collapseAllFolders = () => {
-    setAllCollapsed(true);
     setCollapsed(
       folders.reduce<Record<string, boolean>>((acc, folder) => {
         acc[folder.id] = true;
@@ -112,7 +97,6 @@ export function EndpointSidebar({
   };
 
   const expandAllFolders = () => {
-    setAllCollapsed(false);
     setCollapsed({});
   };
 

@@ -3,69 +3,32 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-
-interface Organization {
-  id: string;
-  name: string;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  isPublic: boolean;
-  createdAt: string;
-  organization: Organization;
-  _count: {
-    endpoints: number;
-    folders: number;
-  };
-}
-
-interface ProjectResponse {
-  id: string;
-  name: string;
-  description: string;
-  isPublic: boolean;
-  createdAt: string;
-  _count: {
-    endpoints: number;
-    folders: number;
-  };
-}
+import { apiFetch } from "@/lib/api-fetch";
+import type { Organization, ProjectListItem } from "@/lib/types";
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchProjects = useCallback(async () => {
+    setError(null);
     try {
-      const orgRes = await fetch("/api/organizations");
-      const orgJson = await orgRes.json();
-
-      if (!orgJson.success) {
-        setProjects([]);
-        return;
-      }
-
-      const organizations = orgJson.data as Organization[];
+      const organizations = await apiFetch<Organization[]>("/api/organizations");
       const projectGroups = await Promise.all(
         organizations.map(async (organization) => {
-          const res = await fetch(
+          const data = await apiFetch<ProjectListItem[]>(
             `/api/projects?organizationId=${organization.id}`,
           );
-          const json = await res.json();
-          if (!json.success) return [];
-
-          return (json.data as ProjectResponse[]).map((project) => ({
+          return data.map((project) => ({
             ...project,
             organization,
           }));
         }),
       );
-
       setProjects(projectGroups.flat());
-    } catch {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载失败");
       setProjects([]);
     } finally {
       setLoading(false);
@@ -84,6 +47,12 @@ export default function ProjectsPage() {
           查看当前账号可访问的全部项目
         </p>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <p className="text-zinc-500">加载中...</p>

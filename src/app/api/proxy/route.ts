@@ -85,13 +85,13 @@ export async function POST(
   } catch (error) {
     const message =
       error instanceof DOMException && error.name === "AbortError"
-        ? "Request timed out"
+        ? "请求超时"
         : error instanceof Error
           ? error.message
-          : "Request failed";
+          : "请求失败";
     return NextResponse.json(
       { success: false, error: message },
-      { status: 502 }
+      { status: error instanceof DOMException && error.name === "AbortError" ? 504 : 502 },
     );
   }
 }

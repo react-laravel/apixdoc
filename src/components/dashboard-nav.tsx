@@ -2,41 +2,41 @@
 
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Menu, ChevronDown, X, Settings } from "lucide-react";
+import { apiFetch } from "@/lib/api-fetch";
+import type { DashboardNavProps } from "@/lib/types";
 
-interface DashboardNavProps {
-  user?: {
-    name: string;
-    email: string;
-    role: string;
-  };
-  projectName?: string;
-}
-
-export function DashboardNav({ user: initialUser, projectName: initialProjectName }: DashboardNavProps) {
+export function DashboardNav({
+  user: initialUser,
+  projectName: initialProjectName,
+}: DashboardNavProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [user, setUser] = useState(initialUser);
+  const user = initialUser;
   const [projectName, setProjectName] = useState(initialProjectName);
   const pathname = usePathname();
 
   // Fetch project name if not provided via prop
   useEffect(() => {
-    if (initialProjectName) {
-      setProjectName(initialProjectName);
-      return;
-    }
+    if (initialProjectName) return;
     const match = pathname.match(/^\/dashboard\/projects\/([^/]+)$/);
     if (!match) return;
-    fetch(`/api/projects/${match[1]}`)
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.success) setProjectName(json.data.name);
+
+    let cancelled = false;
+    apiFetch<{ name: string }>(`/api/projects/${match[1]}`)
+      .then((data) => {
+        if (!cancelled) {
+          setProjectName(data.name);
+        }
       })
       .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialProjectName, pathname]);
 
   return (
@@ -54,7 +54,7 @@ export function DashboardNav({ user: initialUser, projectName: initialProjectNam
             variant="ghost"
             size="icon"
             className="sm:hidden h-8 w-8"
-            onClick={() => setMobileOpen((prev) => ! prev)}
+            onClick={() => setMobileOpen((prev) => !prev)}
             aria-label="菜单"
           >
             {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
@@ -108,7 +108,7 @@ export function DashboardNav({ user: initialUser, projectName: initialProjectNam
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setUserMenuOpen((prev) => ! prev)}
+                onClick={() => setUserMenuOpen((prev) => !prev)}
                 className="gap-1"
               >
                 <span className="text-sm">{user.name}</span>

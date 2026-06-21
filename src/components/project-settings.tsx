@@ -19,41 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface Environment {
-  id?: string;
-  name: string;
-  baseUrl: string;
-  variables: string;
-}
-
-interface GlobalHeader {
-  id?: string;
-  key: string;
-  value: string;
-  description: string;
-  enabled: boolean;
-}
-
-interface GlobalParam {
-  id?: string;
-  name: string;
-  value: string;
-  location: string;
-  description: string;
-  enabled: boolean;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  description: string;
-  baseUrl: string;
-  isPublic: boolean;
-  environments: Environment[];
-  globalHeaders: GlobalHeader[];
-  globalParams: GlobalParam[];
-}
+import type {
+  Project,
+  Environment,
+  GlobalHeader,
+  GlobalParam,
+} from "@/lib/types";
 
 interface ProjectSettingsProps {
   project: Project;

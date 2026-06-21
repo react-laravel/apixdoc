@@ -6,10 +6,10 @@ import { type ApiResponse } from "@/lib/utils";
 export async function GET(): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -27,7 +27,7 @@ export async function GET(): Promise<NextResponse<ApiResponse>> {
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch organizations" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

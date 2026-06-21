@@ -1,7 +1,7 @@
 "use client";
 
 import { useSession } from "next-auth/react";
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,31 +14,26 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-
-interface Organization {
-  id: string;
-  name: string;
-  description: string;
-  _count: { projects: number; members: number };
-}
+import { apiFetch } from "@/lib/api-fetch";
+import type { Organization } from "@/lib/types";
 
 export default function DashboardPage() {
   const { data: session } = useSession();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formName, setFormName] = useState("");
   const [formDesc, setFormDesc] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const fetchOrganizations = useCallback(async () => {
+    setError(null);
     try {
-      const res = await fetch("/api/organizations");
-      const json = await res.json();
-      if (json.success) {
-        setOrganizations(json.data);
-      }
-    } catch {
-      // handled silently
+      const data = await apiFetch<Organization[]>("/api/organizations");
+      setOrganizations(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加载失败");
     } finally {
       setLoading(false);
     }
@@ -51,21 +46,20 @@ export default function DashboardPage() {
   const handleCreate = async () => {
     if (!formName.trim()) return;
 
+    setSubmitting(true);
     try {
-      const res = await fetch("/api/organizations", {
+      const created = await apiFetch<Organization>("/api/organizations", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: formName, description: formDesc }),
       });
-      const json = await res.json();
-      if (json.success) {
-        setOrganizations((prev) => [...prev, json.data]);
-        setDialogOpen(false);
-        setFormName("");
-        setFormDesc("");
-      }
-    } catch {
-      // handled silently
+      setOrganizations((prev) => [...prev, created]);
+      setDialogOpen(false);
+      setFormName("");
+      setFormDesc("");
+    } catch (err) {
+      // Silently fail for now — could show a toast
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -73,9 +67,14 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-4xl space-y-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">组织管理</h1>
-
         <Button onClick={() => setDialogOpen(true)}>创建组织</Button>
       </div>
+
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </div>
+      )}
 
       <section>
         <h2 className="mb-4 text-lg font-semibold">组织列表</h2>
@@ -99,10 +98,10 @@ export default function DashboardPage() {
                 )}
                 <div className="mt-3 flex gap-3">
                   <Badge variant="secondary">
-                    {org._count.projects} 个项目
+                    {org._count?.projects ?? 0} 个项目
                   </Badge>
                   <Badge variant="secondary">
-                    {org._count.members} 个成员
+                    {org._count?.members ?? 0} 个成员
                   </Badge>
                 </div>
               </Link>
@@ -141,7 +140,9 @@ export default function DashboardPage() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               取消
             </Button>
-            <Button onClick={handleCreate}>创建</Button>
+            <Button onClick={handleCreate} disabled={submitting}>
+              {submitting ? "创建中..." : "创建"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
