@@ -8,7 +8,7 @@ Pushing `main` deploys the app on the self-hosted runner with Deployer.
 /var/www/apixdoc/
 ├── current -> releases/<id>
 ├── releases/
-├── shared/prisma/        # SQLite database lives here
+├── shared/prod.db        # SQLite database lives here
 ├── logs/                 # PM2 logs
 └── .env.production       # server-local runtime env
 ```
@@ -21,7 +21,7 @@ Required values:
 
 ```env
 NODE_ENV=production
-DATABASE_URL=file:/var/www/apixdoc/shared/prisma/prod.db
+DATABASE_URL=file:/var/www/apixdoc/shared/prod.db
 AUTH_SECRET=<random secret>
 NEXTAUTH_SECRET=<random secret>
 NEXTAUTH_URL=https://apixdoc.dogeow.com

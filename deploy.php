@@ -14,8 +14,8 @@ set('writable_chmod_mode', '0775');
 set('verify_base_url', getenv('VERIFY_BASE_URL') ?: 'https://apixdoc.dogeow.com');
 set('local_healthcheck_base_url', 'http://127.0.0.1:' . (getenv('PORT') ?: '3002'));
 
-add('shared_dirs', ['logs', 'prisma']);
-add('writable_dirs', ['logs', 'prisma']);
+add('shared_dirs', ['logs']);
+add('writable_dirs', ['logs']);
 
 localhost('production')
     ->set('deploy_path', getenv('DEPLOY_PATH') ?: '/var/www/apixdoc')
@@ -31,7 +31,7 @@ task('deploy:runtime_files', function () {
     run(<<<'BASH'
 bash -lc '
 set -euo pipefail
-mkdir -p "{{deploy_path}}/logs" "{{deploy_path}}/shared/prisma"
+mkdir -p "{{deploy_path}}/logs" "{{deploy_path}}/shared"
 for file in .env .env.local .env.production .env.production.local .npmrc; do
   if [ -f "{{deploy_path}}/$file" ]; then
     cp "{{deploy_path}}/$file" "{{release_path}}/$file"
@@ -46,8 +46,8 @@ task('deploy:vendors', function () {
 });
 
 task('deploy:prisma', function () {
-    run('cd {{release_path}} && npx prisma generate');
-    run('cd {{release_path}} && npx prisma migrate deploy');
+    run('cd {{release_path}} && npx prisma generate --schema=prisma/schema.prisma');
+    run('cd {{release_path}} && npx prisma migrate deploy --schema=prisma/schema.prisma');
 });
 
 task('deploy:seed', function () {
