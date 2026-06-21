@@ -25,6 +25,7 @@ DATABASE_URL=file:/var/www/apixdoc/shared/prod.db
 AUTH_SECRET=<random secret>
 NEXTAUTH_SECRET=<random secret>
 NEXTAUTH_URL=https://apixdoc.dogeow.com
+AUTH_TRUST_HOST=true
 ADMIN_EMAIL=<initial admin email>
 ADMIN_PASSWORD=<initial password used only when seeding a missing admin>
 ```
