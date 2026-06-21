@@ -855,20 +855,15 @@ export function EndpointDetail({
 
           {/* Headers */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="text-sm font-medium">请求头</label>
-              <Button variant="outline" size="sm" onClick={addTestHeader}>
-                添加
-              </Button>
-            </div>
+            <label className="mb-2 block text-sm font-medium">请求头</label>
             <div className="space-y-2">
               {testHeaders.map((h, i) => (
-                <div key={i} className="flex flex-col gap-2 sm:flex-row">
+                <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
                     placeholder="Key"
                     value={h.key}
                     onChange={(e) => updateTestHeader(i, "key", e.target.value)}
-                    className="h-8 text-xs"
+                    className="h-8 w-full text-xs sm:w-44 sm:flex-none"
                   />
                   <Input
                     placeholder="Value"
@@ -876,39 +871,44 @@ export function EndpointDetail({
                     onChange={(e) =>
                       updateTestHeader(i, "value", e.target.value)
                     }
-                    className="h-8 text-xs"
+                    className="h-8 w-full text-xs sm:w-72 sm:flex-none"
                   />
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => removeTestHeader(i)}
-                    className="text-xs"
+                    className="h-8 shrink-0 text-xs sm:w-auto"
                   >
                     删除
                   </Button>
                 </div>
               ))}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addTestHeader}
+                  className="h-8 w-full text-xs sm:w-auto sm:flex-none"
+                >
+                  添加
+                </Button>
+              </div>
             </div>
           </div>
 
           {/* Query Params */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <label className="text-sm font-medium">查询参数</label>
-              <Button variant="outline" size="sm" onClick={addTestQueryParam}>
-                添加
-              </Button>
-            </div>
+            <label className="mb-2 block text-sm font-medium">查询参数</label>
             <div className="space-y-2">
               {testQueryParams.map((p, i) => (
-                <div key={i} className="flex flex-col gap-2 sm:flex-row">
+                <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
                     placeholder="Key"
                     value={p.key}
                     onChange={(e) =>
                       updateTestQueryParam(i, "key", e.target.value)
                     }
-                    className="h-8 text-xs"
+                    className="h-8 w-full text-xs sm:w-44 sm:flex-none"
                   />
                   <Input
                     placeholder="Value"
@@ -916,18 +916,28 @@ export function EndpointDetail({
                     onChange={(e) =>
                       updateTestQueryParam(i, "value", e.target.value)
                     }
-                    className="h-8 text-xs"
+                    className="h-8 w-full text-xs sm:w-72 sm:flex-none"
                   />
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() => removeTestQueryParam(i)}
-                    className="text-xs"
+                    className="h-8 shrink-0 text-xs sm:w-auto"
                   >
                     删除
                   </Button>
                 </div>
               ))}
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addTestQueryParam}
+                  className="h-8 w-full text-xs sm:w-auto sm:flex-none"
+                >
+                  添加
+                </Button>
+              </div>
             </div>
           </div>
 
