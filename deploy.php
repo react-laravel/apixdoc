@@ -83,7 +83,13 @@ task('deploy:healthcheck', function () {
     run(<<<'BASH'
 bash -lc '
 set -euo pipefail
-curl -fsS -o /tmp/apixdoc-local.html -w "local HTTP=%{http_code}\n" "{{local_healthcheck_base_url}}/login"
+for i in 1 2 3 4 5; do
+  if curl --noproxy "*" -fsS -o /tmp/apixdoc-local.html -w "local HTTP=%{http_code}\n" "{{local_healthcheck_base_url}}/login"; then
+    break
+  fi
+  sleep 1
+  if [ "$i" = 5 ]; then exit 1; fi
+done
 if [ -n "{{verify_base_url}}" ]; then
   curl -fsS -o /tmp/apixdoc-public.html -w "public HTTP=%{http_code}\n" "{{verify_base_url}}/login"
 fi
