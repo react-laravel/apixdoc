@@ -866,15 +866,6 @@ export function EndpointDetail({
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-zinc-500">
-                  响应头
-                </label>
-                <pre className="max-h-32 max-w-full overflow-auto rounded bg-zinc-50 p-2 font-mono text-xs dark:bg-zinc-900">
-                  {JSON.stringify(testResponse.headers, null, 2)}
-                </pre>
-              </div>
-
-              <div>
-                <label className="mb-1 block text-xs font-medium text-zinc-500">
                   响应体
                 </label>
                 <pre className="max-h-96 max-w-full overflow-auto rounded bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-900">
@@ -891,6 +882,15 @@ export function EndpointDetail({
                   })()}
                 </pre>
               </div>
+
+              <details className="rounded border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
+                <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-zinc-500">
+                  响应头
+                </summary>
+                <pre className="max-h-32 max-w-full overflow-auto border-t border-zinc-200 p-3 font-mono text-xs dark:border-zinc-800">
+                  {JSON.stringify(testResponse.headers, null, 2)}
+                </pre>
+              </details>
             </div>
           )}
         </TabsContent>
