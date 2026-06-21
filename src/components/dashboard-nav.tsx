@@ -41,8 +41,13 @@ export function DashboardNav({ user: initialUser, projectName: initialProjectNam
 
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="relative flex min-h-14 items-center gap-2 px-3 py-2 sm:px-6">
-        {/* Left: menu + nav */}
+      <div className="flex min-h-14 items-center gap-2 px-3 py-2 sm:px-6">
+        {/* Logo - first on the left */}
+        <Link href="/dashboard" className="flex shrink-0 items-center" aria-label="ApiX Docs">
+          <img src="/logo.svg" alt="ApiX Docs" className="h-8 w-auto sm:h-9" />
+        </Link>
+
+        {/* Menu + nav items */}
         <div className="flex items-center gap-1">
           {/* Mobile hamburger */}
           <Button
@@ -54,24 +59,6 @@ export function DashboardNav({ user: initialUser, projectName: initialProjectNam
           >
             {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </Button>
-
-          {/* Project name + settings on mobile */}
-          {projectName && (
-            <>
-              <span className="min-w-0 flex-1 truncate text-sm font-medium sm:hidden">
-                {projectName}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="sm:hidden h-8 w-8 flex-shrink-0"
-                onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
-                aria-label="设置"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-            </>
-          )}
 
           {/* Desktop nav - visible on sm+ */}
           <nav className="hidden items-center gap-1 sm:flex">
@@ -95,13 +82,26 @@ export function DashboardNav({ user: initialUser, projectName: initialProjectNam
           </nav>
         </div>
 
-        {/* Center: logo */}
-        <Link href="/dashboard" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center" aria-label="ApiX Docs">
-          <img src="/logo.svg" alt="ApiX Docs" className="h-8 w-auto sm:h-9" />
-        </Link>
-
-        {/* Right: user */}
+        {/* Right side */}
         <div className="ml-auto flex items-center gap-1 sm:gap-2">
+          {/* Project name + settings on mobile */}
+          {projectName && (
+            <>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium sm:hidden">
+                {projectName}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="sm:hidden h-8 w-8 flex-shrink-0"
+                onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
+                aria-label="设置"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+
           {/* User dropdown */}
           {user && (
             <div className="relative">
