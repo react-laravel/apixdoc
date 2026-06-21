@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -15,6 +15,67 @@ import {
 } from "@/components/ui/select";
 import { MethodBadge } from "@/components/method-badge";
 import { HTTP_METHODS } from "@/lib/utils";
+
+const TOKEN_FIELD_NAMES = new Set([
+  "token",
+  "access_token",
+  "api_token",
+  "plainTextToken",
+  "plain_text_token",
+]);
+
+function getAuthTokenStorageKey(baseUrl: string) {
+  const normalized = baseUrl.trim();
+  if (!normalized) return "apixdoc.auth-token.default";
+
+  try {
+    const url = new URL(normalized);
+    return `apixdoc.auth-token.${url.origin}`;
+  } catch {
+    return `apixdoc.auth-token.${normalized}`;
+  }
+}
+
+function findAuthToken(payload: unknown, depth = 0): string | null {
+  if (depth > 5 || payload == null) return null;
+
+  if (typeof payload === "string") {
+    try {
+      return findAuthToken(JSON.parse(payload), depth + 1);
+    } catch {
+      return null;
+    }
+  }
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const token = findAuthToken(item, depth + 1);
+      if (token) return token;
+    }
+    return null;
+  }
+
+  if (typeof payload !== "object") return null;
+
+  const record = payload as Record<string, unknown>;
+  for (const [key, value] of Object.entries(record)) {
+    if (TOKEN_FIELD_NAMES.has(key) && typeof value === "string" && value.length > 8) {
+      return value;
+    }
+  }
+
+  for (const value of Object.values(record)) {
+    const token = findAuthToken(value, depth + 1);
+    if (token) return token;
+  }
+
+  return null;
+}
+
+function isLoginPath(path: string) {
+  return /(^|\/)login(\/|$)/i.test(path) || /(^|\/)auth(\/|$)/i.test(path);
+}
+
 
 interface Param {
   id?: string;
@@ -128,6 +189,13 @@ export function EndpointDetail({
   } | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
+  const [authToken, setAuthToken] = useState("");
+  const [tokenNotice, setTokenNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAuthToken(localStorage.getItem(getAuthTokenStorageKey(projectBaseUrl)) ?? "");
+    setTokenNotice(null);
+  }, [projectBaseUrl]);
 
   const handleSaveBasic = () => {
     onSave({ name, method, path, description });
@@ -247,6 +315,13 @@ export function EndpointDetail({
       if (h.key) headersObj[h.key] = h.value;
     }
 
+    const hasAuthorizationHeader = Object.keys(headersObj).some(
+      (key) => key.toLowerCase() === "authorization"
+    );
+    if (authToken && !hasAuthorizationHeader && !isLoginPath(path)) {
+      headersObj.Authorization = `Bearer ${authToken}`;
+    }
+
     try {
       const res = await fetch("/api/proxy", {
         method: "POST",
@@ -261,6 +336,12 @@ export function EndpointDetail({
       const json = await res.json();
       if (json.success) {
         setTestResponse(json.data);
+        const token = findAuthToken(json.data?.body);
+        if (token) {
+          localStorage.setItem(getAuthTokenStorageKey(projectBaseUrl), token);
+          setAuthToken(token);
+          setTokenNotice("已自动保存登录 Token，后续接口会自动携带 Authorization 请求头");
+        }
       } else {
         setTestError(json.error || "请求失败");
       }
@@ -274,6 +355,9 @@ export function EndpointDetail({
   };
 
   const hasBody = ["POST", "PUT", "PATCH"].includes(method.toUpperCase());
+  const maskedAuthToken = authToken
+    ? `${authToken.slice(0, 10)}...${authToken.slice(-6)}`
+    : "";
   const normalizedName = name.trim().replace(/\s+/g, " ");
   const normalizedPath = path.trim().replace(/\s+/g, " ");
   const normalizedMethodPath = `${method} ${path}`.trim().replace(/\s+/g, " ");
@@ -613,6 +697,38 @@ export function EndpointDetail({
                 {path}
               </span>
             </div>
+          </div>
+
+          {/* Auth Token */}
+          <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="font-medium">Laravel Token</div>
+                <div className="mt-1 break-all font-mono text-xs text-zinc-500">
+                  {authToken
+                    ? `已保存：${maskedAuthToken}`
+                    : "调用登录接口后，会自动从响应中的 token / access_token / plainTextToken 保存"}
+                </div>
+              </div>
+              {authToken && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    localStorage.removeItem(getAuthTokenStorageKey(projectBaseUrl));
+                    setAuthToken("");
+                    setTokenNotice("已清除保存的 Token");
+                  }}
+                >
+                  清除 Token
+                </Button>
+              )}
+            </div>
+            {tokenNotice && (
+              <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
+                {tokenNotice}
+              </div>
+            )}
           </div>
 
           {/* Headers */}
