@@ -55,11 +55,22 @@ export function DashboardNav({ user: initialUser, projectName: initialProjectNam
             {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </Button>
 
-          {/* Project name on mobile, right side */}
+          {/* Project name + settings on mobile */}
           {projectName && (
-            <span className="min-w-0 flex-1 truncate text-sm font-medium sm:hidden">
-              {projectName}
-            </span>
+            <>
+              <span className="min-w-0 flex-1 truncate text-sm font-medium sm:hidden">
+                {projectName}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="sm:hidden h-8 w-8 flex-shrink-0"
+                onClick={() => window.dispatchEvent(new CustomEvent('open-settings'))}
+                aria-label="设置"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </>
           )}
 
           {/* Desktop nav - visible on sm+ */}
