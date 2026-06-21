@@ -17,11 +17,8 @@ export function DashboardNav({ user }: DashboardNavProps) {
   return (
     <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 px-3 py-2 sm:px-6">
-        <Link
-          href="/dashboard"
-          className="text-base font-bold tracking-tight text-zinc-900 sm:text-lg dark:text-zinc-50"
-        >
-          ApiX Docs
+        <Link href="/dashboard" className="flex shrink-0 items-center" aria-label="ApiX Docs">
+          <img src="/logo.svg" alt="ApiX Docs" className="h-8 w-auto sm:h-9" />
         </Link>
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1 sm:gap-4">

@@ -36,9 +36,9 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="w-full max-w-sm space-y-6 rounded-xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">ApiX Docs</h1>
-          <p className="mt-1 text-sm text-zinc-500">API 文档管理平台</p>
+        <div className="flex flex-col items-center text-center">
+          <img src="/logo.svg" alt="ApiX Docs" className="h-12 w-auto" />
+          <p className="mt-3 text-sm text-zinc-500">API 文档管理平台</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
