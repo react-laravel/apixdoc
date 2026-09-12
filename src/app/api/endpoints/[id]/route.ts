@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { canEditContent, getProjectAccess } from "@/lib/permissions";
+import { sanitizeDocumentationEndpoint } from "@/lib/documentation/privacy";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
@@ -32,33 +34,10 @@ export async function GET(
       );
     }
 
-    if (!endpoint.project.isPublic) {
-      const session = await auth();
-      if (!session?.user) {
-        return NextResponse.json(
-          { success: false, error: "Unauthorized" },
-          { status: 401 }
-        );
-      }
-
-      const member = await prisma.organizationMember.findUnique({
-        where: {
-          userId_organizationId: {
-            userId: session.user.id,
-            organizationId: endpoint.project.organizationId,
-          },
-        },
-      });
-
-      if (!member) {
-        return NextResponse.json(
-          { success: false, error: "Forbidden" },
-          { status: 403 }
-        );
-      }
-    }
-
-    return NextResponse.json({ success: true, data: endpoint });
+    const session = await auth();
+    const { permissions } = await getProjectAccess(endpoint.project.id, session?.user?.id);
+    if (!permissions.canRead) return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ success: true, data: permissions.canReadConfiguration ? endpoint : sanitizeDocumentationEndpoint(endpoint) });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch endpoint" },
@@ -103,7 +82,7 @@ export async function PUT(
       },
     });
 
-    if (!member) {
+    if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 }
@@ -112,6 +91,10 @@ export async function PUT(
 
     const body = await request.json();
     const { name, method, path, description, folderId, order } = body;
+    if (folderId && !await prisma.folder.findFirst({ where: { id: folderId, projectId: endpoint.projectId }, select: { id: true } })) {
+      return NextResponse.json({ success: false, error: "Invalid folder" }, { status: 400 });
+    }
+
 
     const updated = await prisma.apiEndpoint.update({
       where: { id },
@@ -170,7 +153,7 @@ export async function DELETE(
       },
     });
 
-    if (!member) {
+    if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { canEditContent } from "@/lib/permissions";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
@@ -85,7 +86,7 @@ export async function POST(
       },
     });
 
-    if (!member) {
+    if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 }

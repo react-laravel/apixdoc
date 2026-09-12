@@ -238,6 +238,61 @@ export function useProjectPage() {
     [project],
   );
 
+  const handleCopyEndpoint = useCallback(async () => {
+    if (!project || !selectedEndpointId) return false;
+    setSaveError(null);
+    try {
+      const created = await apiFetch<Endpoint>(
+        `/api/endpoints/${selectedEndpointId}/copy`,
+        { method: "POST" },
+      );
+      setProject((previous) =>
+        previous?.id === project.id
+          ? { ...previous, endpoints: [...previous.endpoints, created] }
+          : previous,
+      );
+      setSelectedEndpointId(created.id);
+      return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "复制接口失败");
+      return false;
+    }
+  }, [project, selectedEndpointId]);
+
+  const handleDeleteEndpoint = useCallback(async () => {
+    if (!project || !selectedEndpointId) return false;
+    const endpoint = project.endpoints.find(
+      (item) => item.id === selectedEndpointId,
+    );
+    if (
+      !window.confirm(
+        `确定删除接口「${endpoint?.name || endpoint?.path || ""}」及其参数、响应定义吗？`,
+      )
+    )
+      return false;
+    setSaveError(null);
+    try {
+      await apiFetch(`/api/endpoints/${selectedEndpointId}`, {
+        method: "DELETE",
+      });
+      setProject((previous) =>
+        previous?.id === project.id
+          ? {
+              ...previous,
+              endpoints: previous.endpoints.filter(
+                (item) => item.id !== selectedEndpointId,
+              ),
+            }
+          : previous,
+      );
+      setSelectedEndpointId(null);
+      return true;
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "删除接口失败");
+      return false;
+    }
+  }, [project, selectedEndpointId]);
+
   const handleSaveEndpoint = useCallback(
     async (data: Partial<Endpoint>) => {
       if (!project || !selectedEndpointId) return false;
@@ -350,6 +405,8 @@ export function useProjectPage() {
     handleRenameFolder,
     handleCreateEndpoint,
     handleSaveEndpoint,
+    handleCopyEndpoint,
+    handleDeleteEndpoint,
     handleSaveSettings,
   };
 }

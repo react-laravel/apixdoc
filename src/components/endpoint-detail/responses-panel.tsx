@@ -99,6 +99,17 @@ export function ResponsesPanel({
               </Select>
             </div>
           </div>
+          <details>
+            <summary className="cursor-pointer text-xs text-zinc-500">
+              编辑响应结构
+            </summary>
+            <JsonWorkbench
+              label={`响应结构 ${r.statusCode}`}
+              value={r.schema || "{}"}
+              onChange={(value) => onUpdate(i, "schema", value)}
+              disabled={saving}
+            />
+          </details>
           <JsonWorkbench
             label={`响应示例 ${r.statusCode}`}
             value={r.example}

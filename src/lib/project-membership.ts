@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma";
+import { canEditContent } from "@/lib/permissions";
 
-/** Runtime configuration is scoped to organization members, including for public projects. */
-export async function isProjectMember(
+/** Public visitors and viewers receive documentation, never shared runtime credentials. */
+export async function canReadProjectConfiguration(
   projectId: string,
   userId: string,
 ): Promise<boolean> {
-  return !!(await prisma.organizationMember.findFirst({
+  const membership = await prisma.organizationMember.findFirst({
     where: { userId, organization: { projects: { some: { id: projectId } } } },
-    select: { id: true },
-  }));
+    select: { role: true },
+  });
+  return canEditContent(membership?.role);
 }

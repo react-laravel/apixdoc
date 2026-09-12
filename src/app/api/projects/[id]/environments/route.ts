@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { isProjectMember } from "@/lib/project-membership";
+import { canConfigureProject } from "@/lib/permissions";
+import { canReadProjectConfiguration } from "@/lib/project-membership";
 import { parseProjectSettings } from "@/lib/project-settings";
 import { type ApiResponse } from "@/lib/utils";
 
@@ -19,7 +20,7 @@ export async function GET(
     }
 
     const { id } = await params;
-    if (!(await isProjectMember(id, session.user.id)))
+    if (!(await canReadProjectConfiguration(id, session.user.id)))
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },
@@ -71,7 +72,7 @@ export async function POST(
       },
     });
 
-    if (!member) {
+    if (!canConfigureProject(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },

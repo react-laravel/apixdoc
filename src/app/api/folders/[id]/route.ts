@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { canEditContent } from "@/lib/permissions";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function PUT(
@@ -39,7 +40,7 @@ export async function PUT(
       },
     });
 
-    if (!member) {
+    if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },
@@ -77,6 +78,13 @@ export async function PUT(
           { status: 400 },
         );
       }
+      const parents = await prisma.folder.findMany({ where: { projectId: folder.projectId }, select: { id: true, parentId: true } });
+      const seen = new Set<string>(); let ancestor: string | null = parentId;
+      while (ancestor) {
+        if (ancestor === id || seen.has(ancestor)) return NextResponse.json({ success: false, error: "A folder cannot contain itself" }, { status: 400 });
+        seen.add(ancestor); ancestor = parents.find((candidate) => candidate.id === ancestor)?.parentId ?? null;
+      }
+
     }
 
     if (normalizedName !== undefined) {
@@ -153,7 +161,7 @@ export async function DELETE(
       },
     });
 
-    if (!member) {
+    if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },

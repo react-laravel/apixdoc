@@ -4,6 +4,7 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { loginDestination } from "@/lib/login-destination";
 import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
@@ -28,7 +29,11 @@ export default function LoginPage() {
       setError("邮箱或密码错误");
       setLoading(false);
     } else {
-      router.push("/dashboard");
+      router.push(
+        loginDestination(
+          new URLSearchParams(window.location.search).get("callbackUrl"),
+        ),
+      );
       router.refresh();
     }
   }
@@ -70,9 +75,7 @@ export default function LoginPage() {
             />
           </div>
 
-          {error && (
-            <p className="text-sm text-red-500">{error}</p>
-          )}
+          {error && <p className="text-sm text-red-500">{error}</p>}
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "登录中..." : "登录"}

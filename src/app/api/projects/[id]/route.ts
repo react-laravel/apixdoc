@@ -2,34 +2,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { type ApiResponse } from "@/lib/utils";
+import { getProjectAccess } from "@/lib/permissions";
+import { sanitizeDocumentationProject } from "@/lib/documentation/privacy";
 import { parseProjectSettings } from "@/lib/project-settings";
-
-async function checkProjectAccess(
-  projectId: string,
-  userId?: string,
-): Promise<{
-  project: Awaited<ReturnType<typeof prisma.project.findUnique>> | null;
-  isMember: boolean;
-}> {
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-  });
-
-  if (!project || !userId) {
-    return { project, isMember: false };
-  }
-
-  const member = await prisma.organizationMember.findUnique({
-    where: {
-      userId_organizationId: {
-        userId,
-        organizationId: project.organizationId,
-      },
-    },
-  });
-
-  return { project, isMember: !!member };
-}
 
 export async function GET(
   _request: Request,
@@ -39,7 +14,7 @@ export async function GET(
     const session = await auth();
     const { id } = await params;
 
-    const { project, isMember } = await checkProjectAccess(
+    const { project, permissions } = await getProjectAccess(
       id,
       session?.user?.id,
     );
@@ -51,7 +26,7 @@ export async function GET(
       );
     }
 
-    if (!project.isPublic && !isMember) {
+    if (!permissions.canRead) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },
@@ -72,6 +47,7 @@ export async function GET(
           orderBy: { order: "asc" },
           include: {
             endpoints: {
+              where: { projectId: id },
               orderBy: { order: "asc" },
               include: endpointInclude,
             },
@@ -94,12 +70,10 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: fullProject && {
-        ...fullProject,
-        globalHeaders: isMember ? fullProject.globalHeaders : [],
-        globalParams: isMember ? fullProject.globalParams : [],
-        environments: isMember ? fullProject.environments : [],
+        ...(permissions.canReadConfiguration ? fullProject : sanitizeDocumentationProject(fullProject)),
+        permissions,
       },
-    });
+    }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch project" },
@@ -122,9 +96,9 @@ export async function PUT(
     }
 
     const { id } = await params;
-    const { isMember } = await checkProjectAccess(id, session.user.id);
+    const { permissions, project: currentProject } = await getProjectAccess(id, session.user.id);
 
-    if (!isMember) {
+    if (!permissions.canConfigure) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },
@@ -133,7 +107,9 @@ export async function PUT(
 
     let data;
     try {
-      data = parseProjectSettings(await request.json());
+      const body = await request.json();
+      if (body.isPublic !== undefined && body.isPublic !== currentProject?.isPublic && !permissions.canManage) return NextResponse.json({ success: false, error: "Only project managers can change visibility" }, { status: 403 });
+      data = parseProjectSettings(body);
     } catch (error) {
       return NextResponse.json(
         {
@@ -173,9 +149,9 @@ export async function DELETE(
     }
 
     const { id } = await params;
-    const { isMember } = await checkProjectAccess(id, session.user.id);
+    const { permissions } = await getProjectAccess(id, session.user.id);
 
-    if (!isMember) {
+    if (!permissions.canManage) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
         { status: 403 },

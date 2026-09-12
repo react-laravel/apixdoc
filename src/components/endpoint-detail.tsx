@@ -3,6 +3,8 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api-fetch";
+import { Copy, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { MethodBadge } from "@/components/method-badge";
 import type {
   EndpointDetailData,
@@ -20,6 +22,9 @@ import { ResponsesPanel } from "@/components/endpoint-detail/responses-panel";
 import { TestPanel } from "@/components/endpoint-detail/test-panel";
 
 interface EndpointDetailProps {
+  onCopy?: () => void;
+  onDelete?: () => void;
+  actionBusy?: boolean;
   projectId?: string;
   environments?: Environment[];
   endpoint: EndpointDetailData;
@@ -39,6 +44,9 @@ export function EndpointDetail({
   globalParams,
   onSave,
   onDirtyChange,
+  onCopy,
+  onDelete,
+  actionBusy = false,
 }: EndpointDetailProps) {
   // Basic info
   const [name, setName] = useState(endpoint.name);
@@ -95,11 +103,12 @@ export function EndpointDetail({
     },
     responses: {
       responses: responses.map(
-        ({ statusCode, description, contentType, example }) => ({
+        ({ statusCode, description, contentType, example, schema }) => ({
           statusCode,
           description,
           contentType,
           example,
+          schema,
         }),
       ),
     },
@@ -337,6 +346,31 @@ export function EndpointDetail({
             {name}
           </span>
         )}
+        <div className="ml-auto flex gap-1">
+          {onCopy && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={saving || actionBusy}
+              onClick={onCopy}
+            >
+              <Copy className="size-3.5" />
+              复制接口
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 text-zinc-400 hover:text-red-600"
+              disabled={saving || actionBusy}
+              onClick={onDelete}
+              aria-label="删除接口"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
+        </div>
       </div>
 
       <div

@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EndpointSidebar } from "@/components/endpoint-sidebar";
+import { DocumentationView } from "@/components/documentation/documentation-view";
+import { ProjectTransfer } from "@/components/project-transfer";
 import { EndpointDetail } from "@/components/endpoint-detail";
 import { ProjectSettings } from "@/components/project-settings";
 import { CreateFolderDialog } from "@/components/create-folder-dialog";
@@ -37,6 +39,8 @@ export default function ProjectPage() {
     handleRenameFolder,
     handleCreateEndpoint,
     handleSaveEndpoint,
+    handleCopyEndpoint,
+    handleDeleteEndpoint,
     handleSaveSettings,
   } = useProjectPage();
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -44,6 +48,8 @@ export default function ProjectPage() {
   const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
   const [endpointFolderId, setEndpointFolderId] = useState<string | null>(null);
   const hasDraft = useRef(false);
+  const [endpointAction, setEndpointAction] = useState(false);
+  const actionRef = useRef(false);
 
   const canLeave = () =>
     !hasDraft.current || window.confirm("有未保存的修改，确定放弃这些修改吗？");
@@ -89,6 +95,9 @@ export default function ProjectPage() {
     );
   }
 
+  if (project.permissions && !project.permissions.canEdit)
+    return <DocumentationView project={project} embedded />;
+
   return (
     <div className="-m-3 flex h-[calc(100%+1.5rem)] min-h-0 flex-col sm:-m-6 sm:h-[calc(100%+3rem)]">
       <div className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-3 py-3 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -109,19 +118,29 @@ export default function ProjectPage() {
             {project.baseUrl || "尚未配置基础 URL"}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0 gap-2"
-          onClick={() => {
-            setSaveError(null);
-            setSettingsOpen(true);
-          }}
+        <ProjectTransfer project={project} onReload={fetchProject} />
+        <Link
+          href={`/docs/${project.id}`}
+          target="_blank"
+          className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          <Settings className="size-4" />
-          <span className="hidden sm:inline">项目设置</span>
-          <span className="sm:hidden">设置</span>
-        </Button>
+          文档预览
+        </Link>
+        {project.permissions?.canConfigure !== false && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2"
+            onClick={() => {
+              setSaveError(null);
+              setSettingsOpen(true);
+            }}
+          >
+            <Settings className="size-4" />
+            <span className="hidden sm:inline">项目设置</span>
+            <span className="sm:hidden">设置</span>
+          </Button>
+        )}
       </div>
 
       {(saveError || loadError) && !settingsOpen && (
@@ -195,6 +214,29 @@ export default function ProjectPage() {
                 globalHeaders={project.globalHeaders ?? []}
                 globalParams={project.globalParams ?? []}
                 onSave={handleSaveEndpoint}
+                actionBusy={endpointAction}
+                onCopy={async () => {
+                  if (actionRef.current || !canLeave()) return;
+                  actionRef.current = true;
+                  setEndpointAction(true);
+                  try {
+                    if (await handleCopyEndpoint()) hasDraft.current = false;
+                  } finally {
+                    actionRef.current = false;
+                    setEndpointAction(false);
+                  }
+                }}
+                onDelete={async () => {
+                  if (actionRef.current) return;
+                  actionRef.current = true;
+                  setEndpointAction(true);
+                  try {
+                    if (await handleDeleteEndpoint()) hasDraft.current = false;
+                  } finally {
+                    actionRef.current = false;
+                    setEndpointAction(false);
+                  }
+                }}
                 onDirtyChange={(dirty) => {
                   hasDraft.current = dirty;
                 }}
@@ -227,6 +269,7 @@ export default function ProjectPage() {
       {settingsOpen && (
         <ProjectSettings
           project={project}
+          canPublish={project.permissions?.canManage !== false}
           onSave={handleSaveSettings}
           error={saveError}
           open={settingsOpen}

@@ -31,6 +31,7 @@ interface ProjectSettingsProps {
   project: Project;
   onSave: (data: Partial<Project>) => Promise<boolean>;
   error?: string | null;
+  canPublish?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -41,6 +42,7 @@ export function ProjectSettings({
   open,
   onOpenChange,
   error,
+  canPublish = true,
 }: ProjectSettingsProps) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -198,6 +200,7 @@ export function ProjectSettings({
               <div>
                 <label className="mb-1 block text-sm font-medium">可见性</label>
                 <Select
+                  disabled={!canPublish}
                   value={isPublic ? "public" : "private"}
                   onValueChange={(v) => setIsPublic(v === "public")}
                 >

@@ -18,8 +18,8 @@ vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: state.user }) }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     organizationMember: {
-      findFirst: async () => (state.member ? { id: "m" } : null),
-      findUnique: async () => (state.member ? { id: "m" } : null),
+      findFirst: async () => (state.member ? { id: "m", role: "member" } : null),
+      findUnique: async () => (state.member ? { id: "m", role: "member" } : null),
     },
     project: {
       findUnique: async () => ({

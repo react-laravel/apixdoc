@@ -76,8 +76,8 @@ export default function OrganizationDetailPage() {
       setMemberDialogOpen(false);
       setMemberEmail("");
       setMemberRole("member");
-    } catch {
-      // no dedicated error UI for member add
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "添加成员失败");
     }
   };
 
@@ -97,8 +97,8 @@ export default function OrganizationDetailPage() {
       setProjectDialogOpen(false);
       setProjectName("");
       setProjectDesc("");
-    } catch {
-      // no dedicated error UI for project create
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "创建项目失败");
     }
   };
 
@@ -109,9 +109,7 @@ export default function OrganizationDetailPage() {
   if (!org) {
     return (
       <div className="mx-auto max-w-4xl space-y-8">
-        {error && (
-          <p className="text-sm text-red-500">{error}</p>
-        )}
+        {error && <p className="text-sm text-red-500">{error}</p>}
         <p className="text-zinc-500">组织不存在</p>
       </div>
     );
@@ -136,9 +134,11 @@ export default function OrganizationDetailPage() {
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">成员</h2>
-          <Button size="sm" onClick={() => setMemberDialogOpen(true)}>
-            添加成员
-          </Button>
+          {org.permissions?.canManage !== false && (
+            <Button size="sm" onClick={() => setMemberDialogOpen(true)}>
+              添加成员
+            </Button>
+          )}
         </div>
         <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
           <table className="w-full text-sm">
@@ -181,9 +181,11 @@ export default function OrganizationDetailPage() {
       <section>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">项目</h2>
-          <Button size="sm" onClick={() => setProjectDialogOpen(true)}>
-            创建项目
-          </Button>
+          {org.permissions?.canEdit !== false && (
+            <Button size="sm" onClick={() => setProjectDialogOpen(true)}>
+              创建项目
+            </Button>
+          )}
         </div>
         {projects.length === 0 ? (
           <p className="text-zinc-500">暂无项目</p>
@@ -220,9 +222,7 @@ export default function OrganizationDetailPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">
-                用户邮箱
-              </label>
+              <label className="mb-1 block text-sm font-medium">用户邮箱</label>
               <Input
                 type="email"
                 value={memberEmail}
@@ -265,9 +265,7 @@ export default function OrganizationDetailPage() {
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="mb-1 block text-sm font-medium">
-                项目名称
-              </label>
+              <label className="mb-1 block text-sm font-medium">项目名称</label>
               <Input
                 value={projectName}
                 onChange={(e) => setProjectName(e.target.value)}
@@ -285,7 +283,10 @@ export default function OrganizationDetailPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setProjectDialogOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setProjectDialogOpen(false)}
+            >
               取消
             </Button>
             <Button onClick={handleCreateProject}>创建</Button>

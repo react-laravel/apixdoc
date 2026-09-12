@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { projectPermissions } from "@/lib/permissions";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
@@ -53,7 +54,7 @@ export async function GET(
       );
     }
 
-    return NextResponse.json({ success: true, data: organization });
+    return NextResponse.json({ success: true, data: { ...organization, permissions: projectPermissions(member.role) } });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch organization" },

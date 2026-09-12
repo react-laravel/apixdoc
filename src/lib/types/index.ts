@@ -1,3 +1,4 @@
+import type { ProjectPermissions } from "@/lib/permissions";
 // ---- Core domain types ----
 
 export interface Folder {
@@ -47,6 +48,7 @@ export interface RequestBody {
 }
 
 export interface EndpointResponse {
+  schema?: string;
   id?: string;
   statusCode: number;
   description: string;
@@ -55,6 +57,7 @@ export interface EndpointResponse {
 }
 
 export interface Project {
+  permissions?: ProjectPermissions;
   id: string;
   name: string;
   description: string;
@@ -95,6 +98,7 @@ export interface GlobalParam {
 // ---- Organization & User types ----
 
 export interface Organization {
+  permissions?: ProjectPermissions;
   id: string;
   name: string;
   description: string;
