@@ -1,3 +1,11 @@
+import { operationFailure } from "@/lib/operations/failures";
+import { appendAudit } from "@/lib/audit/write";
+import {
+  lockDocumentProject,
+  ensureFolderIsolation,
+} from "@/lib/documents/service";
+import { canManageProject } from "@/lib/permissions";
+import { DocumentError } from "@/lib/documents/http";
 import { documentInclude } from "@/lib/documents/service";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -113,11 +121,8 @@ export async function GET(
       },
       { headers: { "Cache-Control": "private, no-store" } },
     );
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch project" },
-      { status: 500 },
-    );
+  } catch (error) {
+    return operationFailure(error, "projects");
   }
 }
 
@@ -155,11 +160,8 @@ export async function PUT(
     } catch (error) {
       return documentFailure(error);
     }
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to update project" },
-      { status: 500 },
-    );
+  } catch (error) {
+    return operationFailure(error, "projects");
   }
 }
 
@@ -186,13 +188,39 @@ export async function DELETE(
       );
     }
 
-    await prisma.project.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      const project = await lockDocumentProject(tx, id, session.user!);
+      const member = await tx.organizationMember.findUnique({
+        where: {
+          userId_organizationId: {
+            userId: session.user!.id!,
+            organizationId: project.organizationId,
+          },
+        },
+      });
+      if (!canManageProject(member?.role))
+        throw new DocumentError("无权删除项目", 403);
+      const folders = await tx.folder.findMany({
+        where: { projectId: id },
+        select: { id: true },
+      });
+      await ensureFolderIsolation(
+        tx,
+        id,
+        folders.map((f) => f.id),
+      );
+      await appendAudit(tx, {
+        actor: session.user!,
+        projectId: id,
+        action: "project.deleted",
+        targetId: id,
+        targetName: project.name,
+      });
+      await tx.project.delete({ where: { id } });
+    });
 
     return NextResponse.json({ success: true, data: { id } });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to delete project" },
-      { status: 500 },
-    );
+  } catch (error) {
+    return operationFailure(error, "projects");
   }
 }

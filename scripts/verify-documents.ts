@@ -392,7 +392,10 @@ async function main() {
       "Document integration passed: permissions, merging, conflicts, exact numbers, layout cycles, history, archive/restore, source compatibility, retention and export.",
     );
   } finally {
-    if (orgId) await prisma.organization.deleteMany({ where: { id: orgId } });
+    if (orgId) {
+      await prisma.organization.deleteMany({ where: { id: orgId } });
+      await prisma.auditEvent.deleteMany({ where: { organizationId: orgId } });
+    }
     await prisma.user.deleteMany({
       where: { id: { in: users.map((u) => u.id) } },
     });

@@ -1,3 +1,5 @@
+import { operationFailure } from "@/lib/operations/failures";
+import { appendAudit } from "@/lib/audit/write";
 import { readPublishedDocument } from "@/lib/publications/service";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -77,11 +79,8 @@ export async function GET(
       );
     }
     return NextResponse.json({ success: true, data: projects });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch projects" },
-      { status: 500 },
-    );
+  } catch (error) {
+    return operationFailure(error, "projects");
   }
 }
 
@@ -123,21 +122,28 @@ export async function POST(
       );
     }
 
-    const project = await prisma.project.create({
-      data: {
-        name,
-        description: description || "",
-        baseUrl: baseUrl || "",
-        organizationId,
-        createdById: session.user.id,
-      },
+    const project = await prisma.$transaction(async (tx) => {
+      const created = await tx.project.create({
+        data: {
+          name,
+          description: description || "",
+          baseUrl: baseUrl || "",
+          organizationId,
+          createdById: session.user.id,
+        },
+      });
+      await appendAudit(tx, {
+        actor: session.user!,
+        projectId: created.id,
+        action: "project.created",
+        targetId: created.id,
+        targetName: created.name,
+      });
+      return created;
     });
 
     return NextResponse.json({ success: true, data: project }, { status: 201 });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to create project" },
-      { status: 500 },
-    );
+  } catch (error) {
+    return operationFailure(error, "projects");
   }
 }

@@ -1,3 +1,4 @@
+import { logFailure } from "@/lib/operations/failures";
 import { parseTree, findNodeAtLocation, type ParseError } from "jsonc-parser";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
@@ -37,9 +38,16 @@ export function documentFailure(error: unknown) {
       },
       { status: 409 },
     );
+  const requestId = logFailure(error, "documents");
   return NextResponse.json(
-    { success: false, error: "文档操作失败，请稍后重试" },
-    { status: 500 },
+    { success: false, error: "文档操作失败，请稍后重试", requestId },
+    {
+      status: 500,
+      headers: {
+        "X-Request-ID": requestId,
+        "Cache-Control": "private, no-store",
+      },
+    },
   );
 }
 export const documentSuccess = (data: unknown, status = 200) =>

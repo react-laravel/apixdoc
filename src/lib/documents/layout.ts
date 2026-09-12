@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import { prisma } from "@/lib/prisma";
 import {
   ensureFolderIsolation,
@@ -122,6 +123,13 @@ export async function changeLayout(
             parentId,
             order: Math.max(-1, ...folders.map((f) => f.order)) + 1,
           },
+        });
+        await appendAudit(tx, {
+          actor,
+          projectId,
+          action: "folder.created",
+          targetId: created.id,
+          targetName: created.name,
         });
         const updatedProject = await bumpLayout(tx, projectId);
         return { ...created, layoutVersion: updatedProject.layoutVersion };
@@ -262,6 +270,25 @@ export async function changeLayout(
       });
       await recordDocumentRevision(tx, updated, actor, "moved");
     }
+    await appendAudit(tx, {
+      actor,
+      projectId,
+      action:
+        action === "delete"
+          ? "folder.deleted"
+          : action === "update"
+            ? "folder.updated"
+            : "project.reordered",
+      targetId: folderId,
+      targetName: current?.name,
+      metadata: {
+        affectedCount: affected.length,
+        fields:
+          action === "reorder"
+            ? ["order", "parentId", "folderId"]
+            : Object.keys(input).filter((key) => key !== "version"),
+      },
+    });
     const updatedProject = await bumpLayout(tx, projectId);
     return { id: folderId, layoutVersion: updatedProject.layoutVersion };
   }, documentTransactionOptions);

@@ -31,8 +31,22 @@ export function DashboardNav({ user }: DashboardNavProps) {
       label: "工具",
       active: pathname.startsWith("/dashboard/tools"),
     },
+    ...(user?.canReadAudit || user?.role === "admin"
+      ? [
+          {
+            href: "/dashboard/audit",
+            label: "操作记录",
+            active: pathname.startsWith("/dashboard/audit"),
+          },
+        ]
+      : []),
     ...(user?.role === "admin"
       ? [
+          {
+            href: "/dashboard/operations",
+            label: "运行状态",
+            active: pathname.startsWith("/dashboard/operations"),
+          },
           {
             href: "/dashboard/users",
             label: "用户管理",

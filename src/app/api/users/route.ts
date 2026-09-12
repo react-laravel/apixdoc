@@ -1,3 +1,5 @@
+import { operationFailure } from "@/lib/operations/failures";
+import { appendAudit } from "@/lib/audit/write";
 import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { prisma } from "@/lib/prisma";
@@ -11,13 +13,13 @@ export async function GET(): Promise<NextResponse<ApiResponse>> {
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
     if (session.user.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -34,29 +36,26 @@ export async function GET(): Promise<NextResponse<ApiResponse>> {
     });
 
     return NextResponse.json({ success: true, data: users });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch users" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return operationFailure(error, "users");
   }
 }
 
 export async function POST(
-  request: Request
+  request: Request,
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
     if (session.user.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -72,7 +71,7 @@ export async function POST(
     if (!normalizedEmail || !normalizedName || !normalizedPassword) {
       return NextResponse.json(
         { success: false, error: "Email, name, and password are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -82,14 +81,14 @@ export async function POST(
           success: false,
           error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!isUserRole(normalizedRole)) {
       return NextResponse.json(
         { success: false, error: "Invalid role" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -99,33 +98,40 @@ export async function POST(
     if (existing) {
       return NextResponse.json(
         { success: false, error: "Email already exists" },
-        { status: 409 }
+        { status: 409 },
       );
     }
 
     const hashedPassword = await hash(normalizedPassword, 10);
 
-    const user = await prisma.user.create({
-      data: {
-        email: normalizedEmail,
-        name: normalizedName,
-        password: hashedPassword,
-        role: normalizedRole,
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        createdAt: true,
-      },
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          email: normalizedEmail,
+          name: normalizedName,
+          password: hashedPassword,
+          role: normalizedRole,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          createdAt: true,
+        },
+      });
+      await appendAudit(tx, {
+        actor: session.user!,
+        action: "user.created",
+        targetId: created.id,
+        targetName: created.name,
+        metadata: { role: normalizedRole },
+      });
+      return created;
     });
 
     return NextResponse.json({ success: true, data: user }, { status: 201 });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to create user" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return operationFailure(error, "users");
   }
 }

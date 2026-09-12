@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import {
   ensureFolderIsolation,
   lockDocumentProject,
@@ -201,6 +202,19 @@ export async function POST(
         await tx.project.update({
           where: { id },
           data: { updatedAt: new Date() },
+        });
+        await appendAudit(tx, {
+          actor: session.user!,
+          projectId: id,
+          action: "project.imported",
+          targetId: source.id,
+          targetName: plan.name,
+          metadata: {
+            format: plan.format,
+            importedCount: preview.accepted.length,
+            skippedCount: preview.summary.skipped,
+            affectedCount: preview.summary.removed,
+          },
         });
         return { ...preview.summary, sourceId: source.id };
       },

@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canManageProject } from "@/lib/permissions";
@@ -170,6 +171,17 @@ export async function saveProjectSettings(
       include: settingsInclude,
     });
     await recordSettingsRevision(tx, projectId);
+    await appendAudit(tx, {
+      actor,
+      projectId,
+      action: "project.settings",
+      targetId: projectId,
+      targetName: updated.name,
+      metadata: {
+        version: updated.settingsVersion,
+        fields: Object.keys(changes),
+      },
+    });
     return { ...updated, settingsMerged: version !== project.settingsVersion };
   }, documentTransactionOptions);
 }

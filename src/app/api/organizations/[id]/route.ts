@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import { lockTeam, teamMember } from "@/lib/team/service";
 import {
   TeamError,
@@ -130,7 +131,7 @@ export async function PUT(
             body.description.length > 2000))
       )
         throw new TeamError("请填写有效的组织名称与简介");
-      return tx.organization.update({
+      const updated = await tx.organization.update({
         where: { id },
         data: {
           name: body.name.trim(),
@@ -139,6 +140,15 @@ export async function PUT(
           teamVersion: { increment: 1 },
         },
       });
+      await appendAudit(tx, {
+        actor: session.user!,
+        organizationId: id,
+        action: "organization.updated",
+        targetId: id,
+        targetName: updated.name,
+        metadata: { fields: ["name", "description"] },
+      });
+      return updated;
     });
     return teamSuccess(data);
   } catch (error) {
@@ -158,6 +168,25 @@ export async function DELETE(
       const member = await teamMember(tx, id, session.user.id);
       if (member?.role !== "owner")
         throw new TeamError("只有所有者可以删除组织", 403);
+      const projects = await tx.project.findMany({
+        where: { organizationId: id },
+        select: { id: true, name: true },
+      });
+      for (const project of projects)
+        await appendAudit(tx, {
+          actor: session.user!,
+          projectId: project.id,
+          action: "project.deleted",
+          targetId: project.id,
+          targetName: project.name,
+        });
+      await appendAudit(tx, {
+        actor: session.user!,
+        organizationId: id,
+        action: "organization.deleted",
+        targetId: id,
+        metadata: { affectedCount: projects.length },
+      });
       await tx.organization.delete({ where: { id } });
     });
     return teamSuccess({ id });

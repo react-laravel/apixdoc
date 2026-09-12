@@ -1,3 +1,4 @@
+import { logFailure } from "@/lib/operations/failures";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 export class TeamError extends Error {
@@ -22,13 +23,16 @@ export function teamFailure(error: unknown) {
       { success: false, error: "成员状态已变化，请刷新后重试" },
       { status: 409 },
     );
-  console.error(
-    "Team operation failed",
-    error instanceof Error ? error.name : "Unknown error",
-  );
+  const requestId = logFailure(error, "team");
   return NextResponse.json(
-    { success: false, error: "操作失败，请稍后重试" },
-    { status: 500 },
+    { success: false, error: "操作失败，请稍后重试", requestId },
+    {
+      status: 500,
+      headers: {
+        "X-Request-ID": requestId,
+        "Cache-Control": "private, no-store",
+      },
+    },
   );
 }
 export async function teamBody(

@@ -5,7 +5,8 @@ namespace Deployer;
 require 'recipe/common.php';
 
 set('application', 'apixdoc');
-set('keep_releases', 1);
+set('keep_releases', 3);
+set('app_revision', function () { return trim(run('cd {{workspace_root}} && git rev-parse HEAD')); });
 set('git_tty', false);
 set('workspace_root', __DIR__);
 set('writable_mode', 'chmod');
@@ -24,7 +25,7 @@ localhost('production')
 task('deploy:update_code', function () {
     $workspaceRoot = rtrim(get('workspace_root'), '/');
     run('mkdir -p {{release_path}}');
-    run('rsync -a --exclude=.git --exclude=node_modules --exclude=.next --exclude=coverage --exclude=logs --exclude=releases --exclude=current ' . $workspaceRoot . '/ {{release_path}}/');
+    run('rsync -a --exclude=.git --exclude=node_modules --exclude=.next --exclude=coverage --exclude=logs --exclude=releases --exclude=current --exclude=.env* --exclude=.npmrc --exclude=output --exclude=.playwright-cli --exclude=.codex ' . escapeshellarg($workspaceRoot . '/') . ' {{release_path}}/');
 });
 
 task('deploy:runtime_files', function () {
@@ -70,9 +71,9 @@ runtime_cwd="{{current_path}}"
 ecosystem_path="{{current_path}}/ecosystem.config.js"
 pm2_untracked() { env -u RUNNER_TRACKING_ID PM2_HOME=/var/www/.pm2 pm2 "$@"; }
 if pm2_untracked info "$app_name" >/dev/null 2>&1; then
-  env -u RUNNER_TRACKING_ID PM2_HOME=/var/www/.pm2 PM2_CWD="$runtime_cwd" APP_ROOT="{{deploy_path}}" PORT="${PORT:-3002}" pm2 restart "$ecosystem_path" --only "$app_name" --update-env
+  env -u RUNNER_TRACKING_ID PM2_HOME=/var/www/.pm2 APP_REVISION="{{app_revision}}" PM2_CWD="$runtime_cwd" APP_ROOT="{{deploy_path}}" PORT="${PORT:-3002}" pm2 restart "$ecosystem_path" --only "$app_name" --update-env
 else
-  env -u RUNNER_TRACKING_ID PM2_HOME=/var/www/.pm2 PM2_CWD="$runtime_cwd" APP_ROOT="{{deploy_path}}" PORT="${PORT:-3002}" pm2 start "$ecosystem_path" --only "$app_name" --update-env
+  env -u RUNNER_TRACKING_ID PM2_HOME=/var/www/.pm2 APP_REVISION="{{app_revision}}" PM2_CWD="$runtime_cwd" APP_ROOT="{{deploy_path}}" PORT="${PORT:-3002}" pm2 start "$ecosystem_path" --only "$app_name" --update-env
 fi
 pm2_untracked status
 '
@@ -84,14 +85,14 @@ task('deploy:healthcheck', function () {
 bash -lc '
 set -euo pipefail
 for i in 1 2 3 4 5; do
-  if curl --noproxy "*" -fsS -o /dev/null -w "local HTTP=%{http_code}\n" "{{local_healthcheck_base_url}}/login"; then
+  if curl --noproxy "*" --connect-timeout 2 --max-time 6 -fsS -o /dev/null -w "local HTTP=%{http_code}\n" "{{local_healthcheck_base_url}}/api/health/ready"; then
     break
   fi
   sleep 1
   if [ "$i" = 5 ]; then exit 1; fi
 done
 if [ -n "{{verify_base_url}}" ]; then
-  curl -fsS -o /dev/null -w "public HTTP=%{http_code}\n" "{{verify_base_url}}/login"
+  curl --connect-timeout 5 --max-time 10 -fsS -o /dev/null -w "public HTTP=%{http_code}\n" "{{verify_base_url}}/api/health/ready"
 fi
 '
 BASH);
@@ -108,7 +109,6 @@ task('deploy', [
     'deploy:writable',
     'deploy:vendors',
     'deploy:prisma',
-    'deploy:seed',
     'deploy:build',
     'deploy:symlink',
     'pm2:restart',

@@ -1,41 +1,22 @@
 import "dotenv/config";
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { hashSync } from "bcryptjs";
-
-const adapter = new PrismaPg(
-  process.env.DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:5432/apixdoc?schema=public",
-);
-const prisma = new PrismaClient({ adapter });
-
-async function main() {
-  const adminEmail = process.env.ADMIN_EMAIL || "admin@apixdocs.com";
-  const adminPassword = process.env.ADMIN_PASSWORD || "admin123";
-
-  const existing = await prisma.user.findUnique({
-    where: { email: adminEmail },
-  });
-
-  if (!existing) {
-    await prisma.user.create({
-      data: {
-        email: adminEmail,
-        name: "Admin",
-        password: hashSync(adminPassword, 12),
-        role: "admin",
-      },
-    });
-    console.log(`Created admin user: ${adminEmail}`);
-  } else {
-    console.log(`Admin user already exists: ${adminEmail}`);
-  }
-}
-
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
+import { prisma } from "../src/lib/prisma";
+import { logFailure } from "../src/lib/operations/failures";
+import {
+  BootstrapError,
+  bootstrapAdministrator,
+} from "../src/lib/operations/bootstrap";
+bootstrapAdministrator()
+  .then((result) =>
+    console.log(
+      result.created ? "管理员已初始化" : "管理员已存在，账号与密码保持不变",
+    ),
+  )
+  .catch((error) => {
+    console.error(
+      error instanceof BootstrapError
+        ? error.message
+        : `初始化失败，问题编号 ${logFailure(error, "bootstrap")}`,
+    );
+    process.exitCode = 1;
   })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+  .finally(() => prisma.$disconnect());

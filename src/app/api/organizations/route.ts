@@ -1,3 +1,5 @@
+import { operationFailure } from "@/lib/operations/failures";
+import { appendAudit } from "@/lib/audit/write";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -24,23 +26,20 @@ export async function GET(): Promise<NextResponse<ApiResponse>> {
     });
 
     return NextResponse.json({ success: true, data: organizations });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch organizations" },
-      { status: 500 },
-    );
+  } catch (error) {
+    return operationFailure(error, "organizations");
   }
 }
 
 export async function POST(
-  request: Request
+  request: Request,
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -50,34 +49,41 @@ export async function POST(
     if (!name) {
       return NextResponse.json(
         { success: false, error: "Name is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const organization = await prisma.organization.create({
-      data: {
-        name,
-        description: description || "",
-        members: {
-          create: {
-            userId: session.user.id,
-            role: "owner",
+    const organization = await prisma.$transaction(async (tx) => {
+      const created = await tx.organization.create({
+        data: {
+          name,
+          description: description || "",
+          members: {
+            create: {
+              userId: session.user.id,
+              role: "owner",
+            },
           },
         },
-      },
-      include: {
-        _count: { select: { members: true, projects: true } },
-      },
+        include: {
+          _count: { select: { members: true, projects: true } },
+        },
+      });
+      await appendAudit(tx, {
+        actor: session.user!,
+        organizationId: created.id,
+        action: "organization.created",
+        targetId: created.id,
+        targetName: created.name,
+      });
+      return created;
     });
 
     return NextResponse.json(
       { success: true, data: organization },
-      { status: 201 }
+      { status: 201 },
     );
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to create organization" },
-      { status: 500 }
-    );
+  } catch (error) {
+    return operationFailure(error, "organizations");
   }
 }

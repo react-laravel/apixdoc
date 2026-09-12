@@ -1,3 +1,4 @@
+vi.mock("@/lib/audit/write", () => ({ appendAudit: vi.fn() }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as createEndpoint } from "./endpoints/route";
 import {

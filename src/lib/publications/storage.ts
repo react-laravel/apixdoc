@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import { DocumentError } from "@/lib/documents/http";
 import { createHash } from "node:crypto";
 import type { Prisma, Project as StoredProject } from "@prisma/client";
@@ -65,6 +66,13 @@ export async function ensurePublicationBaseline(
       action: "baseline",
       actorName: "升级基线",
     },
+  });
+  await appendAudit(tx, {
+    actor: { name: "升级基线" },
+    projectId: project.id,
+    action: "publication.baseline",
+    targetId: document.id,
+    metadata: { version: document.number },
   });
   return tx.project.update({
     where: { id: project.id },

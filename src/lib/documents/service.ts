@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import { ensurePublicationBaseline } from "@/lib/publications/storage";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -98,6 +99,25 @@ export async function recordDocumentRevision(
       snapshot: encodeSnapshot(await snapshot(tx, endpoint)),
     },
   });
+  if (
+    actor &&
+    !["baseline", "imported", "replaced", "moved"].includes(action)
+  ) {
+    const named = {
+      created: "endpoint.created",
+      copied: "endpoint.copied",
+      deleted: "endpoint.deleted",
+      restored: "endpoint.restored",
+    } as const;
+    await appendAudit(tx, {
+      actor,
+      projectId: endpoint.projectId,
+      targetId: endpoint.id,
+      targetName: endpoint.name,
+      action: named[action as keyof typeof named] || "endpoint.updated",
+      metadata: { version: endpoint.version, fields: [action] },
+    });
+  }
   const old = await tx.endpointRevision.findMany({
     where: { endpointId: endpoint.id },
     orderBy: { version: "desc" },

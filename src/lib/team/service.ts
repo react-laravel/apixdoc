@@ -1,3 +1,5 @@
+import { appendAudit } from "@/lib/audit/write";
+import type { AuditAction } from "@/lib/audit/model";
 import { createHash, randomBytes } from "node:crypto";
 import { hash } from "bcryptjs";
 import { Prisma } from "@prisma/client";
@@ -55,6 +57,7 @@ async function recordEvent(
   action: string,
   target: string,
   detail = "",
+  metadata: Record<string, unknown> = {},
 ) {
   await tx.teamEvent.create({
     data: {
@@ -65,6 +68,13 @@ async function recordEvent(
       target,
       detail,
     },
+  });
+  await appendAudit(tx, {
+    organizationId: orgId,
+    actor,
+    action: `team.${action}` as AuditAction,
+    targetName: target,
+    metadata,
   });
   await tx.organization.update({
     where: { id: orgId },
@@ -182,6 +192,7 @@ export async function createInvitation(
       renewId ? "renewed" : "invited",
       email,
       ROLE_LABELS[role],
+      { role },
     );
     return { invitation, token };
   }, transactionOptions);
@@ -297,6 +308,7 @@ export async function changeMember(
           "role-changed",
           target.user.email,
           `${ROLE_LABELS[target.role as TeamRole] || target.role} → ${ROLE_LABELS[input.role]}`,
+          { role: input.role, previousRole: target.role },
         );
       } else {
         await tx.organizationMember.delete({ where: { id: target.id } });
@@ -431,6 +443,7 @@ export async function acceptInvitation(
       "joined",
       account.email,
       existing ? "保留现有角色" : ROLE_LABELS[invitation.role as TeamRole],
+      { role: existing?.role || invitation.role },
     );
     return {
       organizationId: invitation.organizationId,

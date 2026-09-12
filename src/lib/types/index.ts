@@ -225,6 +225,7 @@ export interface SendRequestResult {
 // ---- Dashboard nav ----
 
 export interface DashboardNavUser {
+  canReadAudit?: boolean;
   name: string;
   email: string;
   role: string;

@@ -26,12 +26,19 @@ export default async function DashboardLayout({
     name: dbUser?.name ?? session.user.name ?? "",
     email: dbUser?.email ?? session.user.email ?? "",
     role: dbUser?.role ?? "",
+    canReadAudit:
+      dbUser?.role === "admin" ||
+      (await prisma.organizationMember.count({
+        where: { userId: session.user.id, role: { in: ["owner", "admin"] } },
+      })) > 0,
   };
 
   return (
     <div className="flex h-dvh min-h-0 flex-col overflow-hidden">
       <DashboardNav user={userData} />
-      <main className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">{children}</main>
+      <main className="min-h-0 flex-1 overflow-auto p-3 sm:p-6">
+        {children}
+      </main>
     </div>
   );
 }

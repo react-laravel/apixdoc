@@ -319,3 +319,24 @@ model PublicationEvent {
 
   @@index([projectId, createdAt])
 }
+
+// Scope identifiers are snapshots, not cascading relations: deletion remains auditable.
+model AuditEvent {
+  id               String   @id @default(cuid())
+  organizationId   String?
+  organizationName String   @default("")
+  projectId        String?
+  projectName      String   @default("")
+  actorId          String?
+  actorName        String
+  action           String
+  targetId         String?
+  targetName       String   @default("")
+  metadata         String   @default("{}")
+  createdAt        DateTime @default(now())
+
+  @@index([organizationId, createdAt, id])
+  @@index([projectId, createdAt, id])
+  @@index([action, createdAt, id])
+  @@index([createdAt, id])
+}

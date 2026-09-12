@@ -277,7 +277,10 @@ async function main() {
       "Team integration passed: authority, expiry, renewal, revocation, account binding, signup race, stale updates, demotion, ownership race.",
     );
   } finally {
-    if (orgId) await prisma.organization.deleteMany({ where: { id: orgId } });
+    if (orgId) {
+      await prisma.organization.deleteMany({ where: { id: orgId } });
+      await prisma.auditEvent.deleteMany({ where: { organizationId: orgId } });
+    }
     await prisma.user.deleteMany({
       where: {
         OR: [{ id: { in: userIds } }, { email: { in: generatedEmails } }],

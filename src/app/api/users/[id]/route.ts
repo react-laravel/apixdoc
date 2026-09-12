@@ -1,3 +1,4 @@
+import { appendAudit } from "@/lib/audit/write";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { lockTeam } from "@/lib/team/service";
@@ -50,6 +51,24 @@ export async function DELETE(
           data: { teamVersion: { increment: 1 } },
         });
       }
+      const target = await tx.user.findUnique({
+        where: { id },
+        select: { name: true },
+      });
+      await appendAudit(tx, {
+        actor: session.user!,
+        action: "user.deleted",
+        targetId: id,
+        targetName: target?.name,
+      });
+      for (const membership of memberships)
+        await appendAudit(tx, {
+          actor: session.user!,
+          organizationId: membership.organizationId,
+          action: "team.removed",
+          targetId: id,
+          targetName: target?.name,
+        });
       await tx.user.delete({ where: { id } });
     });
     return teamSuccess({ id });

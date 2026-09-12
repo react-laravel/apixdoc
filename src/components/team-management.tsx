@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -432,6 +433,14 @@ export function TeamManagement({
             </p>
           )}
         </section>
+      )}
+      {manager && (
+        <Link
+          className="inline-block text-sm text-blue-600 hover:underline"
+          href={`/dashboard/audit?organizationId=${org.id}`}
+        >
+          查看组织操作记录
+        </Link>
       )}
       {manager && !!org.events?.length && (
         <details className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">

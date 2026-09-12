@@ -3,6 +3,7 @@ export interface ApiResponse<T = unknown> {
   data?: T;
   error?: string;
   code?: string;
+  requestId?: string;
 }
 export class ApiError extends Error {
   constructor(
@@ -34,7 +35,12 @@ export async function apiFetch<T>(
   }
   if (!response.ok || !body.success)
     throw new ApiError(
-      body.error || `请求失败（${response.status}）`,
+      (body.error || `请求失败（${response.status}）`) +
+        (response.status >= 500 &&
+        body.requestId &&
+        /^[a-f0-9-]{36}$/.test(body.requestId)
+          ? `（问题编号 ${body.requestId}）`
+          : ""),
       response.status,
       body.code,
       body.data,

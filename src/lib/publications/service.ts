@@ -1,3 +1,5 @@
+import { appendAudit } from "@/lib/audit/write";
+import type { AuditAction } from "@/lib/audit/model";
 import { prisma } from "@/lib/prisma";
 import { projectPermissions, canManageProject } from "@/lib/permissions";
 import {
@@ -108,6 +110,7 @@ export async function changePublication(
       throw new DocumentError("只有项目管理员可以发布或撤回文档", 403);
     versionMatches(project.publicationVersion, input.version);
     let publicationId: string | null = null;
+    let affectedCount = 0;
     if (input.action === "publish") {
       const draft = await publicationDraft(tx, id);
       if (
@@ -149,10 +152,11 @@ export async function changePublication(
     } else if (input.action === "withdraw") {
       if (input.confirmation !== project.name)
         throw new DocumentError("请输入项目名称，确认停止所有版本的分享");
-      await tx.publishedDocument.updateMany({
+      const revoked = await tx.publishedDocument.updateMany({
         where: { projectId: id, revokedAt: null },
         data: { revokedAt: new Date() },
       });
+      affectedCount = revoked.count;
       await tx.project.update({
         where: { id },
         data: {
@@ -201,6 +205,22 @@ export async function changePublication(
         action: String(input.action),
         actorName: actor.name || actor.email || "项目管理员",
       },
+    });
+    const auditedPublication = publicationId
+      ? await tx.publishedDocument.findFirst({
+          where: { id: publicationId, projectId: id },
+          select: { number: true, title: true },
+        })
+      : null;
+    await appendAudit(tx, {
+      actor,
+      projectId: id,
+      action: `publication.${input.action}` as AuditAction,
+      targetId: publicationId,
+      targetName: auditedPublication?.title || project.name,
+      metadata: auditedPublication
+        ? { version: auditedPublication.number }
+        : { affectedCount },
     });
     return { publicationId };
   }, documentTransactionOptions);
