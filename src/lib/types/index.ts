@@ -110,6 +110,24 @@ export interface GlobalParam {
 // ---- Organization & User types ----
 
 export interface Organization {
+  teamVersion?: number;
+  currentRole?: import("@/lib/team/roles").TeamRole;
+  currentUserId?: string;
+  invitations?: {
+    id: string;
+    email: string;
+    role: import("@/lib/team/roles").InvitedRole;
+    createdAt: string;
+    expiresAt: string;
+  }[];
+  events?: {
+    id: string;
+    actorName: string;
+    action: string;
+    target: string;
+    detail: string;
+    createdAt: string;
+  }[];
   permissions?: ProjectPermissions;
   id: string;
   name: string;

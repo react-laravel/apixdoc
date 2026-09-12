@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -8,19 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { TeamManagement } from "@/components/team-management";
 import { apiFetch } from "@/lib/api-fetch";
 import type { Organization, Project } from "@/lib/types";
 
@@ -31,58 +25,47 @@ export default function OrganizationDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [memberDialogOpen, setMemberDialogOpen] = useState(false);
-  const [memberEmail, setMemberEmail] = useState("");
-  const [memberRole, setMemberRole] = useState("member");
-
   const [projectDialogOpen, setProjectDialogOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const [projectDesc, setProjectDesc] = useState("");
 
+  const sequence = useRef(0);
+  const [creating, setCreating] = useState(false);
+  const creationLock = useRef(false);
   const fetchData = useCallback(async () => {
+    const version = ++sequence.current;
     setError(null);
     try {
       const [orgData, projData] = await Promise.all([
         apiFetch<Organization>(`/api/organizations/${params.id}`),
         apiFetch<Project[]>(`/api/projects?organizationId=${params.id}`),
       ]);
+      if (version !== sequence.current) return;
       setOrg(orgData);
       setProjects(projData);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加载失败");
+      if (version === sequence.current)
+        setError(err instanceof Error ? err.message : "加载失败");
+      throw err;
     } finally {
-      setLoading(false);
+      if (version === sequence.current) setLoading(false);
     }
   }, [params.id]);
 
   useEffect(() => {
-    fetchData();
+    setOrg(null);
+    setLoading(true);
+    fetchData().catch(() => {});
+    const requestSequence = sequence;
+    return () => {
+      requestSequence.current++;
+    };
   }, [fetchData]);
 
-  const handleAddMember = async () => {
-    if (!memberEmail.trim()) return;
-
-    try {
-      const member = await apiFetch<Organization["members"][0]>(
-        `/api/organizations/${params.id}/members`,
-        {
-          method: "POST",
-          body: JSON.stringify({ email: memberEmail, role: memberRole }),
-        },
-      );
-      setOrg((prev) =>
-        prev ? { ...prev, members: [...prev.members, member] } : prev,
-      );
-      setMemberDialogOpen(false);
-      setMemberEmail("");
-      setMemberRole("member");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "添加成员失败");
-    }
-  };
-
   const handleCreateProject = async () => {
-    if (!projectName.trim()) return;
+    if (!projectName.trim() || creationLock.current) return;
+    creationLock.current = true;
+    setCreating(true);
 
     try {
       const created = await apiFetch<Project>("/api/projects", {
@@ -99,6 +82,9 @@ export default function OrganizationDetailPage() {
       setProjectDesc("");
     } catch (error) {
       setError(error instanceof Error ? error.message : "创建项目失败");
+    } finally {
+      creationLock.current = false;
+      setCreating(false);
     }
   };
 
@@ -110,7 +96,10 @@ export default function OrganizationDetailPage() {
     return (
       <div className="mx-auto max-w-4xl space-y-8">
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <p className="text-zinc-500">组织不存在</p>
+        {!error && <p className="text-zinc-500">组织不存在</p>}
+        <Button variant="outline" onClick={() => fetchData().catch(() => {})}>
+          重新加载
+        </Button>
       </div>
     );
   }
@@ -130,52 +119,7 @@ export default function OrganizationDetailPage() {
         </div>
       )}
 
-      {/* Members */}
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">成员</h2>
-          {org.permissions?.canManage !== false && (
-            <Button size="sm" onClick={() => setMemberDialogOpen(true)}>
-              添加成员
-            </Button>
-          )}
-        </div>
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
-                <th className="px-4 py-3 text-left font-medium">姓名</th>
-                <th className="px-4 py-3 text-left font-medium">邮箱</th>
-                <th className="px-4 py-3 text-left font-medium">角色</th>
-              </tr>
-            </thead>
-            <tbody>
-              {org.members.map((m) => (
-                <tr
-                  key={m.id}
-                  className="border-b border-zinc-100 dark:border-zinc-800"
-                >
-                  <td className="px-4 py-3">{m.user.name}</td>
-                  <td className="px-4 py-3 text-zinc-500">{m.user.email}</td>
-                  <td className="px-4 py-3">
-                    <Badge variant="secondary">{m.role.toUpperCase()}</Badge>
-                  </td>
-                </tr>
-              ))}
-              {org.members.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={3}
-                    className="px-4 py-6 text-center text-zinc-500"
-                  >
-                    暂无成员
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <TeamManagement organization={org} onReload={fetchData} />
 
       {/* Projects */}
       <section>
@@ -214,51 +158,11 @@ export default function OrganizationDetailPage() {
         )}
       </section>
 
-      {/* Add Member Dialog */}
-      <Dialog open={memberDialogOpen} onOpenChange={setMemberDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>添加成员</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">用户邮箱</label>
-              <Input
-                type="email"
-                value={memberEmail}
-                onChange={(e) => setMemberEmail(e.target.value)}
-                placeholder="user@example.com"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">角色</label>
-              <Select value={memberRole} onValueChange={setMemberRole}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="owner">OWNER</SelectItem>
-                  <SelectItem value="admin">ADMIN</SelectItem>
-                  <SelectItem value="member">MEMBER</SelectItem>
-                  <SelectItem value="viewer">VIEWER</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setMemberDialogOpen(false)}
-            >
-              取消
-            </Button>
-            <Button onClick={handleAddMember}>添加</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Create Project Dialog */}
-      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+      <Dialog
+        open={projectDialogOpen}
+        onOpenChange={(open) => !creating && setProjectDialogOpen(open)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>创建项目</DialogTitle>
@@ -284,12 +188,18 @@ export default function OrganizationDetailPage() {
           </div>
           <DialogFooter>
             <Button
+              disabled={creating}
               variant="outline"
               onClick={() => setProjectDialogOpen(false)}
             >
               取消
             </Button>
-            <Button onClick={handleCreateProject}>创建</Button>
+            <Button
+              disabled={creating || !projectName.trim()}
+              onClick={handleCreateProject}
+            >
+              {creating ? "创建中…" : "创建"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

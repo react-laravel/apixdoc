@@ -13,3 +13,14 @@ it("returns to document links without accepting external redirects", () => {
   ])
     expect(loginDestination(value)).toBe("/dashboard");
 });
+
+it("returns to invitation and organization pages without reflecting tokens or external destinations", () => {
+  expect(loginDestination("/join")).toBe("/join");
+  expect(loginDestination("/dashboard/organizations/org-1")).toBe(
+    "/dashboard/organizations/org-1",
+  );
+  expect(loginDestination("/join#invite=secret")).toBe("/dashboard");
+  expect(loginDestination("/dashboard/organizations/../../evil")).toBe(
+    "/dashboard",
+  );
+});

@@ -21,7 +21,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         if (!user) return null;
 
-        const isValid = await compare(String(credentials.password), user.password);
+        const isValid = await compare(
+          String(credentials.password),
+          user.password,
+        );
         if (!isValid) return null;
 
         return {
@@ -39,6 +42,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.role = (user as { role: string }).role;
         token.id = user.id;
       }
+      if (typeof token.id !== "string") return null;
+      const current = await prisma.user.findUnique({
+        where: { id: token.id },
+        select: { id: true, role: true, name: true, email: true },
+      });
+      if (!current) return null;
+      token.role = current.role;
+      token.name = current.name;
+      token.email = current.email;
       return token;
     },
     async session({ session, token }) {

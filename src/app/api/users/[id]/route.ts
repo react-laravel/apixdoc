@@ -1,51 +1,59 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { type ApiResponse } from "@/lib/utils";
-
+import { prisma } from "@/lib/prisma";
+import { lockTeam } from "@/lib/team/service";
+import { TeamError, teamFailure, teamSuccess } from "@/lib/team/errors";
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<ApiResponse>> {
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
     const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-    if (session.user.role !== "admin") {
-      return NextResponse.json(
-        { success: false, error: "Forbidden" },
-        { status: 403 }
-      );
-    }
-
+    if (!session?.user?.id) throw new TeamError("请先登录", 401);
+    if (session.user.role !== "admin") throw new TeamError("无权删除用户", 403);
     const { id } = await params;
-
-    if (id === session.user.id) {
-      return NextResponse.json(
-        { success: false, error: "Cannot delete yourself" },
-        { status: 400 }
-      );
-    }
-
-    const user = await prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "User not found" },
-        { status: 404 }
-      );
-    }
-
-    await prisma.user.delete({ where: { id } });
-
-    return NextResponse.json({ success: true, data: { id } });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to delete user" },
-      { status: 500 }
-    );
+    if (id === session.user.id) throw new TeamError("不能删除自己的账号");
+    await prisma.$transaction(async (tx) => {
+      // Prevent new memberships while locking all existing organizations in a stable order.
+      const users = await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT "id" FROM "User" WHERE "id" = ${id} FOR UPDATE`;
+      if (!users.length) throw new TeamError("用户不存在", 404);
+      const memberships = await tx.organizationMember.findMany({
+        where: { userId: id },
+        orderBy: { organizationId: "asc" },
+      });
+      for (const membership of memberships)
+        await lockTeam(tx, membership.organizationId);
+      if (
+        await tx.organizationMember.count({
+          where: { userId: id, role: "owner" },
+        })
+      )
+        throw new TeamError("该用户仍是组织所有者，请先完成所有权转移", 409);
+      if (
+        (await tx.project.count({ where: { createdById: id } })) ||
+        (await tx.apiEndpoint.count({ where: { createdById: id } }))
+      )
+        throw new TeamError("该账号仍关联已创建的项目或接口，暂不能删除", 409);
+      for (const member of memberships) {
+        await tx.teamEvent.create({
+          data: {
+            organizationId: member.organizationId,
+            actorId: session.user.id,
+            actorName: session.user.name || session.user.email || "平台管理员",
+            action: "account-deleted",
+            target: id,
+          },
+        });
+        await tx.organization.update({
+          where: { id: member.organizationId },
+          data: { teamVersion: { increment: 1 } },
+        });
+      }
+      await tx.user.delete({ where: { id } });
+    });
+    return teamSuccess({ id });
+  } catch (error) {
+    return teamFailure(error);
   }
 }

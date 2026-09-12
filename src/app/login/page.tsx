@@ -2,13 +2,11 @@
 
 import { useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { loginDestination } from "@/lib/login-destination";
 import { Input } from "@/components/ui/input";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,22 +17,33 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
-
-    if (result?.error) {
-      setError("邮箱或密码错误");
-      setLoading(false);
-    } else {
-      router.push(
-        loginDestination(
-          new URLSearchParams(window.location.search).get("callbackUrl"),
-        ),
+    try {
+      const destination = loginDestination(
+        new URLSearchParams(window.location.search).get("callbackUrl"),
       );
-      router.refresh();
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+        redirectTo: destination,
+      });
+      if (result?.error) setError("邮箱或密码错误");
+      else {
+        const invitation = new URLSearchParams(
+          window.location.hash.slice(1),
+        ).get("invite");
+        window.location.assign(
+          destination === "/join" &&
+            invitation &&
+            /^[A-Za-z0-9_-]{43}$/.test(invitation)
+            ? `/join#invite=${invitation}`
+            : destination,
+        );
+      }
+    } catch {
+      setError("登录失败，请检查网络后重试");
+    } finally {
+      setLoading(false);
     }
   }
 

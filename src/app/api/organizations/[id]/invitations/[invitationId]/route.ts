@@ -1,24 +1,23 @@
 import { auth } from "@/lib/auth";
-import { changeMember } from "@/lib/team/service";
+import { createInvitation, revokeInvitation } from "@/lib/team/service";
 import {
   TeamError,
   teamBody,
   teamFailure,
   teamSuccess,
 } from "@/lib/team/errors";
-// Legacy member creation now issues an invitation; joining requires the invitee's confirmation.
-export { POST } from "../invitations/route";
-type Context = { params: Promise<{ id: string }> };
+type Context = { params: Promise<{ id: string; invitationId: string }> };
 export async function PATCH(request: Request, { params }: Context) {
   try {
     const session = await auth();
     if (!session?.user?.id) throw new TeamError("请先登录", 401);
+    const { id, invitationId } = await params;
     return teamSuccess(
-      await changeMember(
-        (await params).id,
+      await createInvitation(
+        id,
         session.user,
-        "role",
         await teamBody(request),
+        invitationId,
       ),
     );
   } catch (error) {
@@ -29,11 +28,12 @@ export async function DELETE(request: Request, { params }: Context) {
   try {
     const session = await auth();
     if (!session?.user?.id) throw new TeamError("请先登录", 401);
+    const { id, invitationId } = await params;
     return teamSuccess(
-      await changeMember(
-        (await params).id,
+      await revokeInvitation(
+        id,
+        invitationId,
         session.user,
-        "remove",
         await teamBody(request),
       ),
     );

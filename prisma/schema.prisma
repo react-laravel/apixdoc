@@ -15,20 +15,26 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  organizations    OrganizationMember[]
-  createdProjects  Project[]
-  createdEndpoints ApiEndpoint[]
+  organizations       OrganizationMember[]
+  createdProjects     Project[]
+  createdEndpoints    ApiEndpoint[]
+  sentInvitations     OrganizationInvitation[] @relation("InvitationSender")
+  acceptedInvitations OrganizationInvitation[] @relation("InvitationAcceptor")
+  teamEvents          TeamEvent[]
 }
 
 model Organization {
+  teamVersion Int      @default(0)
   id          String   @id @default(cuid())
   name        String
   description String   @default("")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  members  OrganizationMember[]
-  projects Project[]
+  members     OrganizationMember[]
+  projects    Project[]
+  invitations OrganizationInvitation[]
+  events      TeamEvent[]
 }
 
 model OrganizationMember {
@@ -207,4 +213,39 @@ model Environment {
   isDefault Boolean @default(false)
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model OrganizationInvitation {
+  id             String       @id @default(cuid())
+  organizationId String
+  email          String
+  role           String
+  tokenHash      String       @unique
+  createdById    String?
+  acceptedById   String?
+  createdAt      DateTime     @default(now())
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  revokedAt      DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?        @relation("InvitationSender", fields: [createdById], references: [id], onDelete: SetNull)
+  acceptedBy     User?        @relation("InvitationAcceptor", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, email])
+  @@index([createdById])
+}
+
+model TeamEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  actorId        String?
+  actorName      String
+  action         String
+  target         String
+  detail         String       @default("")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
 }
