@@ -30,9 +30,10 @@ function date(value: string | undefined) {
 async function access(tx: Prisma.TransactionClient, userId: string) {
   const user = await tx.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { role: true, status: true },
   });
-  if (!user) throw new DocumentError("请先登录", 401);
+  if (!user || user.status !== "active")
+    throw new DocumentError("请先登录", 401);
   const admin = user.role === "admin";
   const managed = admin
     ? []

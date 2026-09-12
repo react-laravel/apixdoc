@@ -160,6 +160,7 @@ export interface Organization {
 export interface OrganizationMember {
   id: string;
   user: {
+    status?: string;
     id: string;
     email: string;
     name: string;

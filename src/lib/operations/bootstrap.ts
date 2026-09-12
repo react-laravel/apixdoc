@@ -22,13 +22,15 @@ export async function bootstrapAdministrator() {
   const existing = email
     ? await prisma.user.findUnique({
         where: { email },
-        select: { id: true, role: true },
+        select: { id: true, role: true, status: true },
       })
     : await prisma.user.findFirst({
-        where: { role: "admin" },
-        select: { id: true, role: true },
+        where: { role: "admin", status: "active" },
+        select: { id: true, role: true, status: true },
       });
   if (existing) {
+    if (existing.status !== "active")
+      throw new BootstrapError("该账号已停用或删除，请通过用户管理恢复");
     if (existing.role !== "admin")
       throw new BootstrapError("该邮箱已被普通账号使用，不会自动提升权限");
     return { created: false };

@@ -75,6 +75,14 @@ export const checkReadiness = createReadinessCheck(async () => {
               publicationVersion: true,
             },
           });
+          await tx.user.findFirst({
+            select: {
+              id: true,
+              status: true,
+              sessionVersion: true,
+              resetTokenHash: true,
+            },
+          });
           await tx.auditEvent.findFirst({
             select: { id: true, metadata: true },
           });

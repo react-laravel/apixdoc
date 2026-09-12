@@ -19,7 +19,8 @@
     "test:documents": "tsx scripts/verify-documents.ts",
     "test:publications": "tsx scripts/verify-publications.ts",
     "test:audit": "tsx scripts/verify-audit.ts",
-    "audit:retention": "tsx scripts/audit-retention.ts"
+    "audit:retention": "tsx scripts/audit-retention.ts",
+    "test:accounts": "tsx scripts/verify-accounts.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

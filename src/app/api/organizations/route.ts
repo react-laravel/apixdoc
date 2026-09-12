@@ -1,3 +1,4 @@
+import { lockAccounts, activeAccount } from "@/lib/accounts/identity";
 import { operationFailure } from "@/lib/operations/failures";
 import { appendAudit } from "@/lib/audit/write";
 import { NextResponse } from "next/server";
@@ -54,6 +55,8 @@ export async function POST(
     }
 
     const organization = await prisma.$transaction(async (tx) => {
+      await lockAccounts(tx);
+      await activeAccount(tx, session.user.id);
       const created = await tx.organization.create({
         data: {
           name,

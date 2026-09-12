@@ -48,6 +48,8 @@ type Action =
   | { kind: "leave"; version: number };
 const eventLabels: Record<string, string> = {
   "account-deleted": "删除账号",
+  "account-disabled": "停用账号",
+  "account-enabled": "启用账号",
   invited: "邀请",
   renewed: "重新生成邀请",
   "invitation-revoked": "撤销邀请",
@@ -267,6 +269,11 @@ export function TeamManagement({
               <div className="min-w-0 flex-1">
                 <p className="break-words text-sm font-medium">
                   {member.user.name}
+                  {member.user.status === "disabled" && (
+                    <span className="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                      账号已停用
+                    </span>
+                  )}
                   {member.user.id === org.currentUserId && (
                     <span className="ml-2 text-xs font-normal text-zinc-400">
                       你
@@ -312,20 +319,21 @@ export function TeamManagement({
                         >
                           调整角色
                         </DropdownMenu.Item>
-                        {role === "owner" && (
-                          <DropdownMenu.Item
-                            className={menuItem}
-                            onSelect={() =>
-                              openAction({
-                                kind: "transfer",
-                                member,
-                                version: org.teamVersion!,
-                              })
-                            }
-                          >
-                            转移所有权
-                          </DropdownMenu.Item>
-                        )}
+                        {role === "owner" &&
+                          member.user.status !== "disabled" && (
+                            <DropdownMenu.Item
+                              className={menuItem}
+                              onSelect={() =>
+                                openAction({
+                                  kind: "transfer",
+                                  member,
+                                  version: org.teamVersion!,
+                                })
+                              }
+                            >
+                              转移所有权
+                            </DropdownMenu.Item>
+                          )}
                         <DropdownMenu.Item
                           className={`${menuItem} text-red-600`}
                           onSelect={() =>

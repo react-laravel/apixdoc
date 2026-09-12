@@ -13,7 +13,11 @@ vi.mock("next-auth", () => ({
 vi.mock("./prisma", () => ({ prisma: { user: { findUnique: state.user } } }));
 import "./auth";
 beforeEach(() => state.user.mockReset());
-const refresh = async (token: { id?: string; role?: string }) => {
+const refresh = async (token: {
+  id?: string;
+  role?: string;
+  sessionVersion?: number;
+}) => {
   const callback = state.config!.callbacks!.jwt!;
   return callback({
     token,
@@ -32,6 +36,8 @@ describe("live session identity", () => {
       name: "Updated",
       email: "new@example.test",
       role: "user",
+      status: "active",
+      sessionVersion: 0,
     });
     expect(await refresh({ id: "user", role: "admin" })).toEqual(
       expect.objectContaining({
@@ -44,5 +50,50 @@ describe("live session identity", () => {
   it("rejects sessions without a valid account identifier", async () => {
     expect(await refresh({ role: "admin" })).toBeNull();
     expect(state.user).not.toHaveBeenCalled();
+  });
+});
+
+describe("account state and credential session revocation", () => {
+  it.each(["disabled", "deleted"])(
+    "rejects existing signed sessions for %s accounts",
+    async (status) => {
+      state.user.mockResolvedValue({
+        id: "user",
+        role: "user",
+        status,
+        sessionVersion: 0,
+      });
+      expect(await refresh({ id: "user" })).toBeNull();
+    },
+  );
+  it("invalidates all old tokens after a password change and does not revive them after restoration", async () => {
+    state.user.mockResolvedValue({
+      id: "user",
+      name: "Name",
+      email: "a@example.test",
+      role: "user",
+      status: "active",
+      sessionVersion: 2,
+    });
+    expect(await refresh({ id: "user", sessionVersion: 1 })).toBeNull();
+    expect(await refresh({ id: "user" })).toBeNull();
+    expect(await refresh({ id: "user", sessionVersion: 2 })).toEqual(
+      expect.objectContaining({ id: "user", sessionVersion: 2 }),
+    );
+  });
+  it("does not accept a sign-in result verified before its password was changed", async () => {
+    state.user.mockResolvedValue({
+      id: "user",
+      status: "active",
+      sessionVersion: 1,
+    });
+    const callback = state.config!.callbacks!.jwt!;
+    expect(
+      await callback({
+        token: {},
+        account: null,
+        user: { id: "user", role: "user", sessionVersion: 0 },
+      } as unknown as Parameters<typeof callback>[0]),
+    ).toBeNull();
   });
 });

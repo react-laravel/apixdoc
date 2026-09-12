@@ -1,3 +1,4 @@
+import { lockAccounts, activeAccount } from "@/lib/accounts/identity";
 import { appendAudit } from "@/lib/audit/write";
 import type { AuditAction } from "@/lib/audit/model";
 import { createHash, randomBytes } from "node:crypto";
@@ -43,7 +44,9 @@ export async function lockTeam(tx: Tx, id: string) {
 export async function teamMember(tx: Tx, id: string, userId: string) {
   return tx.organizationMember.findUnique({
     where: { userId_organizationId: { userId, organizationId: id } },
-    include: { user: { select: { id: true, email: true, name: true } } },
+    include: {
+      user: { select: { id: true, email: true, name: true, status: true } },
+    },
   });
 }
 function checkVersion(actual: number, expected: unknown) {
@@ -99,6 +102,8 @@ export async function createInvitation(
   renewId?: string,
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockAccounts(tx);
+    await activeAccount(tx, actor.id);
     const org = await lockTeam(tx, orgId);
     const member = await teamMember(tx, orgId, actor.id);
     if (!member || !["owner", "admin"].includes(member.role))
@@ -119,6 +124,8 @@ export async function createInvitation(
     const account = await tx.user.findFirst({
       where: { email: { equals: email, mode: "insensitive" } },
     });
+    if (account && account.status !== "active")
+      throw new TeamError("该邮箱账号已停用或删除，请联系平台管理员", 409);
     if (account && (await teamMember(tx, orgId, account.id)))
       throw new TeamError("该用户已经是组织成员", 409);
     const pending = await tx.organizationInvitation.findUnique({
@@ -204,6 +211,8 @@ export async function revokeInvitation(
   input: Record<string, unknown>,
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockAccounts(tx);
+    await activeAccount(tx, actor.id);
     const org = await lockTeam(tx, orgId);
     const member = await teamMember(tx, orgId, actor.id);
     if (!member || !["owner", "admin"].includes(member.role))
@@ -237,6 +246,8 @@ export async function changeMember(
   input: Record<string, unknown>,
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockAccounts(tx);
+    await activeAccount(tx, actor.id);
     const org = await lockTeam(tx, orgId);
     const current = await teamMember(tx, orgId, actor.id);
     if (!current) throw new TeamError("你已不在此组织中", 403);
@@ -250,6 +261,8 @@ export async function changeMember(
     const target = await teamMember(tx, orgId, targetId);
     if (!target) throw new TeamError("成员不存在", 404);
     if (action === "transfer") {
+      if (target.user.status !== "active")
+        throw new TeamError("接任者账号不可用，请先联系平台管理员恢复", 409);
       if (current.role !== "owner")
         throw new TeamError("只有所有者可以转移所有权", 403);
       if (target.userId === actor.id || target.role === "owner")
@@ -344,7 +357,10 @@ async function pendingInvitation(
   const sender = invitation.createdById
     ? await teamMember(tx, invitation.organizationId, invitation.createdById)
     : null;
-  if (!canInviteRole(sender?.role, invitation.role))
+  if (
+    sender?.user.status !== "active" ||
+    !canInviteRole(sender?.role, invitation.role)
+  )
     throw new TeamError("邀请人权限已变化，请联系管理员重新邀请", 410);
 }
 export async function inspectInvitation(
@@ -390,6 +406,8 @@ export async function acceptInvitation(
 ) {
   const token = readInvitationToken(tokenValue);
   return prisma.$transaction(async (tx) => {
+    await lockAccounts(tx);
+    if (actor) await activeAccount(tx, actor.id);
     const initial = await validInvitation(tx, token);
     await lockTeam(tx, initial.organizationId);
     const invitation = await validInvitation(tx, token);
@@ -397,6 +415,8 @@ export async function acceptInvitation(
     let account = await tx.user.findFirst({
       where: { email: { equals: invitation.email, mode: "insensitive" } },
     });
+    if (account && account.status !== "active")
+      throw new TeamError("该账号不可用，请联系平台管理员", 403);
     if (actor && actor.id !== account?.id)
       throw new TeamError("请切换到邀请对应的账号后再加入", 403);
     if (account && !actor)
@@ -419,6 +439,15 @@ export async function acceptInvitation(
         },
       });
     }
+    if (createdAccount)
+      await appendAudit(tx, {
+        actor: account,
+        organizationId: invitation.organizationId,
+        action: "user.created",
+        targetId: account.id,
+        targetName: account.name,
+        metadata: { role: "user" },
+      });
     const existing = await teamMember(
       tx,
       invitation.organizationId,

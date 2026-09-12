@@ -6,7 +6,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Menu, ChevronDown, LogOut, X } from "lucide-react";
+import { Menu, ChevronDown, LogOut, X, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { DashboardNavProps } from "@/lib/types";
 
@@ -84,7 +84,7 @@ export function DashboardNav({ user }: DashboardNavProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 sm:hidden"
+          className="size-8 lg:hidden"
           onClick={() => setMobileOpen(!mobileOpen)}
           aria-label="菜单"
           aria-expanded={mobileOpen}
@@ -92,7 +92,7 @@ export function DashboardNav({ user }: DashboardNavProps) {
         >
           {mobileOpen ? <X className="size-4" /> : <Menu className="size-4" />}
         </Button>
-        <nav aria-label="主导航" className="hidden items-center gap-1 sm:flex">
+        <nav aria-label="主导航" className="hidden items-center gap-1 lg:flex">
           {navigation}
         </nav>
         {user && (
@@ -110,6 +110,15 @@ export function DashboardNav({ user }: DashboardNavProps) {
                   sideOffset={6}
                   className="z-50 min-w-40 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
                 >
+                  <DropdownMenu.Item asChild>
+                    <Link
+                      href="/dashboard/account"
+                      className="flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-sm outline-none focus:bg-zinc-100 dark:focus:bg-zinc-800"
+                    >
+                      <UserRound className="size-4" />
+                      个人设置
+                    </Link>
+                  </DropdownMenu.Item>
                   <DropdownMenu.Item
                     onSelect={() => signOut({ callbackUrl: "/" })}
                     className="flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-sm text-red-600 outline-none focus:bg-red-50 dark:text-red-400 dark:focus:bg-red-950"
@@ -127,7 +136,7 @@ export function DashboardNav({ user }: DashboardNavProps) {
         <nav
           id="mobile-navigation"
           aria-label="移动导航"
-          className="flex flex-col gap-1 border-t border-zinc-200 px-3 py-2 sm:hidden dark:border-zinc-800"
+          className="flex flex-col gap-1 border-t border-zinc-200 px-3 py-2 lg:hidden dark:border-zinc-800"
         >
           {navigation}
         </nav>
