@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { buildRequestUrl } from "@/lib/request-url";
 import { MethodBadge } from "@/components/method-badge";
 import type {
   EndpointDetailData,
@@ -65,6 +66,7 @@ export function EndpointDetail({
   );
 
   const [activeTab, setActiveTab] = useState("basic");
+  const [testVisited, setTestVisited] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const savingRef = useRef(false);
@@ -263,6 +265,9 @@ export function EndpointDetail({
                   ...r,
                   description: r.description || `${response.status} response`,
                   example: response.body,
+                  contentType:
+                    response.headers["content-type"]?.split(";")[0] ||
+                    r.contentType,
                 }
               : r,
           ),
@@ -360,6 +365,7 @@ export function EndpointDetail({
           onValueChange={(value) => {
             if (!saving) {
               setActiveTab(value);
+              if (value === "test") setTestVisited(true);
               setSaveNotice(null);
             }
           }}
@@ -427,76 +433,85 @@ export function EndpointDetail({
             />
           </TabsContent>
 
-          <TabsContent value="test">
-            <TestPanel
-              method={method}
-              path={path}
-              projectBaseUrl={projectBaseUrl}
-              globalHeaders={globalHeaders}
-              globalParams={globalParams}
-              params={params}
-              bodyExample={bodyExample}
-              onSend={async ({ headers, queryParams, body, authToken }) => {
-                const queryString = queryParams
-                  .filter((p) => p.key)
-                  .map(
-                    (p) =>
-                      `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`,
-                  )
-                  .join("&");
+          <TabsContent
+            value="test"
+            forceMount
+            className="data-[state=inactive]:hidden"
+          >
+            {testVisited && (
+              <TestPanel
+                method={method}
+                path={path}
+                projectBaseUrl={projectBaseUrl}
+                globalHeaders={globalHeaders}
+                globalParams={globalParams}
+                params={params}
+                bodyExample={bodyExample}
+                bodyContentType={bodyContentType}
+                onSend={async ({
+                  headers,
+                  queryParams,
+                  body,
+                  authToken,
+                  signal,
+                }) => {
+                  const fullUrl = buildRequestUrl(
+                    projectBaseUrl,
+                    path,
+                    queryParams,
+                  );
 
-                const fullUrl = `${projectBaseUrl}${path}${queryString ? `?${queryString}` : ""}`;
+                  const headersObj: Record<string, string> = {};
+                  for (const h of headers) {
+                    if (h.key) headersObj[h.key] = h.value;
+                  }
 
-                if (!projectBaseUrl) {
-                  throw new Error("请先在项目设置中配置 Base URL");
-                }
+                  const normalizedMethod = method.toUpperCase();
+                  const requestHasBody = [
+                    "POST",
+                    "PUT",
+                    "PATCH",
+                    "DELETE",
+                  ].includes(normalizedMethod);
+                  const hasContentTypeHeader = Object.keys(headersObj).some(
+                    (key) => key.toLowerCase() === "content-type",
+                  );
+                  if (requestHasBody && !hasContentTypeHeader) {
+                    headersObj["Content-Type"] =
+                      bodyContentType || "application/json";
+                  }
 
-                const headersObj: Record<string, string> = {};
-                for (const h of headers) {
-                  if (h.key) headersObj[h.key] = h.value;
-                }
+                  const hasAuthorizationHeader = Object.keys(headersObj).some(
+                    (key) => key.toLowerCase() === "authorization",
+                  );
+                  if (
+                    authToken &&
+                    !hasAuthorizationHeader &&
+                    !isLoginPath(path)
+                  ) {
+                    headersObj.Authorization = `Bearer ${authToken}`;
+                  }
 
-                const normalizedMethod = method.toUpperCase();
-                const requestHasBody = ["POST", "PUT", "PATCH"].includes(
-                  normalizedMethod,
-                );
-                const hasContentTypeHeader = Object.keys(headersObj).some(
-                  (key) => key.toLowerCase() === "content-type",
-                );
-                if (requestHasBody && !hasContentTypeHeader) {
-                  headersObj["Content-Type"] =
-                    bodyContentType || "application/json";
-                }
-
-                const hasAuthorizationHeader = Object.keys(headersObj).some(
-                  (key) => key.toLowerCase() === "authorization",
-                );
-                if (
-                  authToken &&
-                  !hasAuthorizationHeader &&
-                  !isLoginPath(path)
-                ) {
-                  headersObj.Authorization = `Bearer ${authToken}`;
-                }
-
-                const res = await fetch("/api/proxy", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    url: fullUrl,
-                    method: normalizedMethod,
-                    headers: headersObj,
-                    body: requestHasBody ? body : undefined,
-                  }),
-                });
-                const json = await res.json();
-                if (!json.success) {
-                  throw new Error(json.error || "请求失败");
-                }
-                return json.data;
-              }}
-              onImportResponse={(response) => importTestResponse(response)}
-            />
+                  const res = await fetch("/api/proxy", {
+                    signal,
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      url: fullUrl,
+                      method: normalizedMethod,
+                      headers: headersObj,
+                      body: requestHasBody ? body : undefined,
+                    }),
+                  });
+                  const json = await res.json();
+                  if (!json.success) {
+                    throw new Error(json.error || "请求失败");
+                  }
+                  return json.data;
+                }}
+                onImportResponse={(response) => importTestResponse(response)}
+              />
+            )}
           </TabsContent>
         </Tabs>
       </fieldset>

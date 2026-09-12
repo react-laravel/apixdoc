@@ -1,7 +1,8 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { JsonWorkbench } from "@/components/json/json-workbench";
+import { isJsonContentType } from "@/lib/json-document";
 import {
   Select,
   SelectContent,
@@ -68,26 +69,25 @@ export function RequestBodyPanel({
         </div>
       )}
 
-      <div>
-        <label className="mb-1 block text-sm font-medium">JSON Schema</label>
-        <Textarea
-          value={schema}
-          onChange={(e) => onSchemaChange(e.target.value)}
-          rows={8}
-          className="font-mono text-xs"
-          placeholder='{"type": "object", "properties": {...}}'
-        />
-      </div>
-      <div>
-        <label className="mb-1 block text-sm font-medium">请求体示例</label>
-        <Textarea
-          value={example}
-          onChange={(e) => onExampleChange(e.target.value)}
-          rows={8}
-          className="font-mono text-xs"
-          placeholder='{"key": "value"}'
-        />
-      </div>
+      <JsonWorkbench
+        label="JSON Schema"
+        value={schema}
+        onChange={onSchemaChange}
+        disabled={saving}
+        filename="request-schema.json"
+      />
+      <JsonWorkbench
+        label="请求体示例"
+        value={example}
+        onChange={onExampleChange}
+        disabled={saving}
+        language={isJsonContentType(contentType) ? "json" : "text"}
+        filename={
+          isJsonContentType(contentType)
+            ? "request-body.json"
+            : "request-body.txt"
+        }
+      />
       <Button disabled={saving} onClick={onSave}>
         {saving ? "保存中…" : "保存"}
       </Button>

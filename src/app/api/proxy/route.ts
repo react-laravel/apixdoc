@@ -10,14 +10,14 @@ import {
 import { type ApiResponse } from "@/lib/utils";
 
 export async function POST(
-  request: Request
+  request: Request,
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -29,14 +29,14 @@ export async function POST(
     if (!url || !normalizedMethod) {
       return NextResponse.json(
         { success: false, error: "url and method are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!isHttpRequestMethod(normalizedMethod)) {
       return NextResponse.json(
         { success: false, error: "Unsupported HTTP method" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -48,10 +48,14 @@ export async function POST(
       method: normalizedMethod,
       headers: sanitizeProxyHeaders(headers),
       redirect: "manual",
-      signal: controller.signal,
+      signal: AbortSignal.any([controller.signal, request.signal]),
     };
 
-    if (requestBody && normalizedMethod !== "GET" && normalizedMethod !== "HEAD") {
+    if (
+      requestBody &&
+      normalizedMethod !== "GET" &&
+      normalizedMethod !== "HEAD"
+    ) {
       fetchOptions.body =
         typeof requestBody === "string"
           ? requestBody
@@ -61,8 +65,8 @@ export async function POST(
     try {
       const startTime = Date.now();
       const response = await fetch(targetUrl, fetchOptions);
-      const duration = Date.now() - startTime;
       const responseBody = await readLimitedResponseBody(response);
+      const duration = Date.now() - startTime;
 
       const responseHeaders: Record<string, string> = {};
       response.headers.forEach((value, key) => {
@@ -83,6 +87,11 @@ export async function POST(
       clearTimeout(timeout);
     }
   } catch (error) {
+    if (request.signal.aborted)
+      return NextResponse.json(
+        { success: false, error: "请求已取消" },
+        { status: 499 },
+      );
     const message =
       error instanceof DOMException && error.name === "AbortError"
         ? "请求超时"
@@ -91,7 +100,12 @@ export async function POST(
           : "请求失败";
     return NextResponse.json(
       { success: false, error: message },
-      { status: error instanceof DOMException && error.name === "AbortError" ? 504 : 502 },
+      {
+        status:
+          error instanceof DOMException && error.name === "AbortError"
+            ? 504
+            : 502,
+      },
     );
   }
 }

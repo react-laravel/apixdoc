@@ -1,11 +1,22 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { JsonWorkbench } from "@/components/json/json-workbench";
+import {
+  formatBytes,
+  inspectJson,
+  isJsonContentType,
+} from "@/lib/json-document";
+import { buildRequestUrl } from "@/lib/request-url";
 import { Badge } from "@/components/ui/badge";
-import type { EndpointParam, GlobalHeader, GlobalParam, SendRequestResult } from "@/lib/types";
+import type {
+  EndpointParam,
+  GlobalHeader,
+  GlobalParam,
+  SendRequestResult,
+} from "@/lib/types";
 
 function getAuthTokenStorageKey(baseUrl: string) {
   const normalized = baseUrl.trim();
@@ -23,6 +34,7 @@ export interface SendRequestOptions {
   queryParams: Array<{ key: string; value: string }>;
   body: string;
   authToken: string;
+  signal?: AbortSignal;
 }
 
 interface TestPanelProps {
@@ -33,6 +45,7 @@ interface TestPanelProps {
   globalParams: GlobalParam[];
   params: EndpointParam[];
   bodyExample: string;
+  bodyContentType?: string;
   onSend: (options: SendRequestOptions) => Promise<SendRequestResult>;
   onImportResponse: (response: SendRequestResult) => void;
 }
@@ -45,6 +58,7 @@ export function TestPanel({
   globalParams,
   params,
   bodyExample,
+  bodyContentType = "application/json",
   onSend,
   onImportResponse,
 }: TestPanelProps) {
@@ -57,16 +71,14 @@ export function TestPanel({
   );
   const [testQueryParams, setTestQueryParams] = useState<
     Array<{ key: string; value: string }>
-  >(
-    [
-      ...(globalParams ?? [])
-        .filter((p) => p.enabled && p.location === "query")
-        .map((p) => ({ key: p.name, value: p.value })),
-      ...(params ?? [])
-        .filter((p) => p.location === "query")
-        .map((p) => ({ key: p.name, value: p.example })),
-    ],
-  );
+  >([
+    ...(globalParams ?? [])
+      .filter((p) => p.enabled && p.location === "query")
+      .map((p) => ({ key: p.name, value: p.value })),
+    ...(params ?? [])
+      .filter((p) => p.location === "query")
+      .map((p) => ({ key: p.name, value: p.example })),
+  ]);
   const [testBody, setTestBody] = useState(bodyExample);
   const [testResponse, setTestResponse] = useState<{
     status: number;
@@ -74,17 +86,41 @@ export function TestPanel({
     body: string;
     duration: number;
   } | null>(null);
+  const requestRef = useRef<AbortController | null>(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
   const [authToken, setAuthToken] = useState("");
   const [tokenNotice, setTokenNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    setAuthToken(localStorage.getItem(getAuthTokenStorageKey(projectBaseUrl)) ?? "");
-    setTokenNotice(null);
+    try {
+      setAuthToken(
+        localStorage.getItem(getAuthTokenStorageKey(projectBaseUrl)) ?? "",
+      );
+      setTokenNotice(null);
+    } catch {
+      setTokenNotice("浏览器存储不可用，可临时填写 Token 发起请求");
+    }
   }, [projectBaseUrl]);
 
+  useEffect(
+    () => () => {
+      requestRef.current?.abort();
+    },
+    [],
+  );
+  const requestUrl = (() => {
+    try {
+      return buildRequestUrl(projectBaseUrl, path, testQueryParams);
+    } catch {
+      return `${projectBaseUrl}${path}`;
+    }
+  })();
+
   const handleSend = async () => {
+    if (requestRef.current) return;
+    const controller = new AbortController();
+    requestRef.current = controller;
     setTestLoading(true);
     setTestResponse(null);
     setTestError(null);
@@ -93,15 +129,21 @@ export function TestPanel({
       const result = await onSend({
         headers: testHeaders,
         queryParams: testQueryParams,
-        body: testBody || bodyExample,
+        body: testBody,
         authToken,
+        signal: controller.signal,
       });
-      setTestResponse(result);
+      if (!controller.signal.aborted) setTestResponse(result);
     } catch (err) {
       setTestError(
-        err instanceof Error ? err.message : "网络错误，请检查请求地址",
+        controller.signal.aborted
+          ? "请求已取消"
+          : err instanceof Error
+            ? err.message
+            : "网络错误，请检查请求地址",
       );
     } finally {
+      if (requestRef.current === controller) requestRef.current = null;
       setTestLoading(false);
     }
   };
@@ -111,15 +153,15 @@ export function TestPanel({
     onImportResponse(testResponse);
   };
 
-  const maskedAuthToken = authToken
-    ? `${authToken.slice(0, 10)}...${authToken.slice(-6)}`
-    : "";
-
   const addTestHeader = () => {
     setTestHeaders((prev) => [...prev, { key: "", value: "" }]);
   };
 
-  const updateTestHeader = (index: number, field: "key" | "value", value: string) => {
+  const updateTestHeader = (
+    index: number,
+    field: "key" | "value",
+    value: string,
+  ) => {
     setTestHeaders((prev) =>
       prev.map((h, i) => (i === index ? { ...h, [field]: value } : h)),
     );
@@ -133,7 +175,11 @@ export function TestPanel({
     setTestQueryParams((prev) => [...prev, { key: "", value: "" }]);
   };
 
-  const updateTestQueryParam = (index: number, field: "key" | "value", value: string) => {
+  const updateTestQueryParam = (
+    index: number,
+    field: "key" | "value",
+    value: string,
+  ) => {
     setTestQueryParams((prev) =>
       prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)),
     );
@@ -153,8 +199,7 @@ export function TestPanel({
             {method}
           </Badge>
           <span className="min-w-0 break-all text-zinc-600 dark:text-zinc-400">
-            {projectBaseUrl}
-            {path}
+            {requestUrl}
           </span>
         </div>
       </div>
@@ -163,11 +208,11 @@ export function TestPanel({
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <div className="font-medium">Laravel Token</div>
+            <div className="font-medium">Bearer Token</div>
             <div className="mt-1 break-all font-mono text-xs text-zinc-500">
               {authToken
-                ? `已保存：${maskedAuthToken}`
-                : "调用登录接口后，会自动从响应中的 token / access_token / plainTextToken 保存"}
+                ? "已填写访问令牌"
+                : "填写访问令牌；保存后仅用于当前 API 地址"}
             </div>
           </div>
           {authToken && (
@@ -175,14 +220,49 @@ export function TestPanel({
               variant="outline"
               size="sm"
               onClick={() => {
-                localStorage.removeItem(getAuthTokenStorageKey(projectBaseUrl));
+                try {
+                  localStorage.removeItem(
+                    getAuthTokenStorageKey(projectBaseUrl),
+                  );
+                  setTokenNotice("已清除保存的 Token");
+                } catch {
+                  setTokenNotice("已清除当前 Token，浏览器存储清理失败");
+                }
                 setAuthToken("");
-                setTokenNotice("已清除保存的 Token");
               }}
             >
               清除 Token
             </Button>
           )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Input
+            type="password"
+            autoComplete="off"
+            aria-label="Bearer Token"
+            placeholder="输入 Token（无需 Bearer 前缀）"
+            value={authToken}
+            onChange={(event) => setAuthToken(event.target.value)}
+            className="min-w-0 flex-1 font-mono text-xs"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!authToken.trim() || !projectBaseUrl}
+            onClick={() => {
+              try {
+                localStorage.setItem(
+                  getAuthTokenStorageKey(projectBaseUrl),
+                  authToken.trim(),
+                );
+                setTokenNotice("Token 已保存到此浏览器");
+              } catch {
+                setTokenNotice("保存失败，本次请求仍可使用当前 Token");
+              }
+            }}
+          >
+            保存 Token
+          </Button>
         </div>
         {tokenNotice && (
           <div className="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
@@ -196,7 +276,10 @@ export function TestPanel({
         <label className="mb-2 block text-sm font-medium">请求头</label>
         <div className="space-y-2">
           {testHeaders.map((h, i) => (
-            <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div
+              key={i}
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            >
               <Input
                 placeholder="Key"
                 value={h.key}
@@ -237,7 +320,10 @@ export function TestPanel({
         <label className="mb-2 block text-sm font-medium">查询参数</label>
         <div className="space-y-2">
           {testQueryParams.map((p, i) => (
-            <div key={i} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div
+              key={i}
+              className="flex flex-col gap-2 sm:flex-row sm:items-center"
+            >
               <Input
                 placeholder="Key"
                 value={p.key}
@@ -247,7 +333,9 @@ export function TestPanel({
               <Input
                 placeholder="Value"
                 value={p.value}
-                onChange={(e) => updateTestQueryParam(i, "value", e.target.value)}
+                onChange={(e) =>
+                  updateTestQueryParam(i, "value", e.target.value)
+                }
                 className="h-8 w-full text-xs sm:w-72 sm:flex-none"
               />
               <Button
@@ -274,15 +362,15 @@ export function TestPanel({
       </div>
 
       {/* Request Body */}
-      {"POST PUT PATCH".includes(method.toUpperCase()) && (
+      {["POST", "PUT", "PATCH", "DELETE"].includes(method.toUpperCase()) && (
         <div>
           <label className="mb-1 block text-sm font-medium">请求体</label>
-          <Textarea
+          <JsonWorkbench
+            label="测试请求体"
             value={testBody}
-            onChange={(e) => setTestBody(e.target.value)}
-            rows={6}
-            className="font-mono text-xs"
-            placeholder='{"key": "value"}'
+            onChange={setTestBody}
+            language={isJsonContentType(bodyContentType) ? "json" : "text"}
+            filename="request-body.json"
           />
         </div>
       )}
@@ -292,6 +380,17 @@ export function TestPanel({
         <Button onClick={handleSend} disabled={testLoading}>
           {testLoading ? "发送中..." : "发送请求"}
         </Button>
+        {testLoading && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              requestRef.current?.abort();
+              setTestError("请求已取消");
+            }}
+          >
+            取消请求
+          </Button>
+        )}
       </div>
 
       {/* Error */}
@@ -315,36 +414,47 @@ export function TestPanel({
               {testResponse.status}
             </Badge>
             <span className="text-sm text-zinc-500">
-              {testResponse.duration}ms
+              {testResponse.duration} ms
+            </span>
+            <span className="text-sm text-zinc-500">
+              {formatBytes(new TextEncoder().encode(testResponse.body).length)}
             </span>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-zinc-500">
-              响应体
-            </label>
-            <pre className="max-h-96 max-w-full overflow-auto rounded bg-zinc-50 p-3 font-mono text-xs dark:bg-zinc-900">
-              {(() => {
-                try {
-                  return JSON.stringify(
-                    JSON.parse(testResponse.body),
-                    null,
-                    2,
-                  );
-                } catch {
-                  return testResponse.body;
-                }
-              })()}
-            </pre>
-          </div>
+          <JsonWorkbench
+            label="响应体"
+            value={testResponse.body}
+            readOnly
+            language={
+              isJsonContentType(testResponse.headers["content-type"] || "") ||
+              inspectJson(testResponse.body).root
+                ? "json"
+                : "text"
+            }
+            filename={`response-${testResponse.status}.${isJsonContentType(testResponse.headers["content-type"] || "") || inspectJson(testResponse.body).root ? "json" : "txt"}`}
+          />
 
           <details className="rounded border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
             <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-zinc-500">
               响应头
             </summary>
-            <pre className="max-h-32 max-w-full overflow-auto border-t border-zinc-200 p-3 font-mono text-xs dark:border-zinc-800">
-              {JSON.stringify(testResponse.headers, null, 2)}
-            </pre>
+            <div className="overflow-x-auto border-t border-zinc-200 dark:border-zinc-800">
+              <table className="w-full text-left text-xs">
+                <tbody>
+                  {Object.entries(testResponse.headers).map(([key, value]) => (
+                    <tr
+                      key={key}
+                      className="border-b border-zinc-100 last:border-0 dark:border-zinc-800"
+                    >
+                      <th className="whitespace-nowrap px-3 py-2 font-mono font-medium">
+                        {key}
+                      </th>
+                      <td className="break-all px-3 py-2 font-mono">{value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </details>
         </div>
       )}

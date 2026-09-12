@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ResponsesPanel } from "@/components/endpoint-detail/responses-panel";
+import type { CodeEditorProps } from "@/components/json/code-editor";
+vi.mock("@/components/json/code-editor", () => ({ CodeEditor: ({ value, onChange, label, readOnly }: CodeEditorProps) => <textarea aria-label={label} value={value} readOnly={readOnly} onChange={(event) => onChange?.(event.target.value)} /> }));
+
 
 const mockResponses = [
   {

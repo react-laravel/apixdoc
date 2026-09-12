@@ -26,6 +26,11 @@ export function DashboardNav({ user }: DashboardNavProps) {
       label: "项目管理",
       active: pathname.startsWith("/dashboard/projects"),
     },
+    {
+      href: "/dashboard/tools/json",
+      label: "工具",
+      active: pathname.startsWith("/dashboard/tools"),
+    },
     ...(user?.role === "admin"
       ? [
           {

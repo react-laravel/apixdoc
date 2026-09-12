@@ -2,7 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { JsonWorkbench } from "@/components/json/json-workbench";
+import { isJsonContentType } from "@/lib/json-document";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -98,15 +99,14 @@ export function ResponsesPanel({
               </Select>
             </div>
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium">响应示例</label>
-            <Textarea
-              value={r.example}
-              onChange={(e) => onUpdate(i, "example", e.target.value)}
-              rows={4}
-              className="font-mono text-xs"
-            />
-          </div>
+          <JsonWorkbench
+            label={`响应示例 ${r.statusCode}`}
+            value={r.example}
+            onChange={(value) => onUpdate(i, "example", value)}
+            disabled={saving}
+            language={isJsonContentType(r.contentType) ? "json" : "text"}
+            filename={`response-${r.statusCode}.${isJsonContentType(r.contentType) ? "json" : "txt"}`}
+          />
         </div>
       ))}
 
