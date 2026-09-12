@@ -23,14 +23,16 @@ vi.mock("@/lib/auth", () => ({
 }));
 vi.mock("@/lib/prisma", () => {
   const tx = {
+    $queryRaw: async () => [{ id: "p" }],
+    endpointRevision: { create: vi.fn(), findMany: async () => [] },
     project: { findUnique: async () => project, update: vi.fn() },
     organizationMember: {
       findUnique: async () => ({ role: state.role }),
       findFirst: async () => ({ role: state.role }),
     },
-    specificationImport: { create, deleteMany: remove, findFirst: create },
-    apiEndpoint: { create, deleteMany: remove },
-    folder: { create, deleteMany: remove },
+    specificationImport: { create, updateMany: remove, findFirst: create },
+    apiEndpoint: { create, findMany: async () => [] },
+    folder: { create, deleteMany: remove, findMany: async () => [] },
     environment: { createMany: create },
   };
   return {
@@ -130,7 +132,7 @@ describe("specification import access and preview contract", () => {
         })
       ).status,
     ).toBe(200);
-    expect(remove).toHaveBeenCalledTimes(3);
+    expect(remove).toHaveBeenCalledTimes(2);
   });
   it("does not expose an original file to a viewer", async () => {
     state.role = "viewer";

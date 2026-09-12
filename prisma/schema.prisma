@@ -51,6 +51,7 @@ model OrganizationMember {
 }
 
 model Project {
+  layoutVersion  Int      @default(1)
   id             String   @id @default(cuid())
   name           String
   description    String   @default("")
@@ -87,6 +88,7 @@ model Folder {
 }
 
 model SpecificationImport {
+  active    Boolean       @default(true)
   id        String        @id @default(cuid())
   projectId String
   name      String
@@ -102,6 +104,9 @@ model SpecificationImport {
 }
 
 model ApiEndpoint {
+  version          Int                  @default(1)
+  deletedAt        DateTime?
+  revisions        EndpointRevision[]
   sourceImportId   String?
   sourcePointer    String               @default("")
   sourceDefinition String               @default("{}")
@@ -133,6 +138,7 @@ model ApiEndpoint {
 }
 
 model EndpointParam {
+  order       Int     @default(0)
   schema      String  @default("{}")
   id          String  @id @default(cuid())
   endpointId  String
@@ -147,6 +153,7 @@ model EndpointParam {
 }
 
 model EndpointHeader {
+  order       Int     @default(0)
   id          String  @id @default(cuid())
   endpointId  String
   key         String
@@ -169,6 +176,7 @@ model RequestBody {
 }
 
 model EndpointResponse {
+  order       Int    @default(0)
   statusKey   String @default("")
   id          String @id @default(cuid())
   endpointId  String
@@ -248,4 +256,19 @@ model TeamEvent {
   actor          User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, createdAt])
+}
+
+model EndpointRevision {
+  id         String      @id @default(cuid())
+  endpointId String
+  version    Int
+  action     String
+  actorName  String
+  actorId    String?
+  snapshot   String
+  createdAt  DateTime    @default(now())
+  endpoint   ApiEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@unique([endpointId, version])
+  @@index([endpointId, createdAt])
 }

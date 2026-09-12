@@ -34,9 +34,10 @@ export default async function DocumentationPage({
   const data = await prisma.project.findUnique({
     where: { id },
     include: {
-      specificationImports: true,
+      specificationImports: { where: { active: true } },
       folders: { orderBy: { order: "asc" } },
       endpoints: {
+        where: { deletedAt: null },
         orderBy: { order: "asc" },
         include: {
           parameters: true,

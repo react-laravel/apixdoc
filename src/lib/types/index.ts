@@ -10,6 +10,13 @@ export interface Folder {
 }
 
 export interface Endpoint {
+  projectId?: string;
+  order?: number;
+  saveMerged?: boolean;
+  restoreNotice?: string;
+  version?: number;
+  deletedAt?: string | Date | null;
+  projectLayoutVersion?: number;
   sourceImportId?: string | null;
   sourcePointer?: string;
   sourceDefinition?: string;
@@ -66,6 +73,7 @@ export interface EndpointResponse {
 }
 
 export interface Project {
+  layoutVersion?: number;
   specificationImports?: import("@/lib/specification/types").SpecificationSource[];
   documentationVersion?: string;
   documentationSchemas?: Record<string, string>;
@@ -232,6 +240,14 @@ export interface ProjectListItem {
 // ---- Detail view types (for endpoint-detail) ----
 
 export interface EndpointDetailData {
+  projectId?: string;
+  saveMerged?: boolean;
+  restoreNotice?: string;
+  version?: number;
+  deletedAt?: string | Date | null;
+  folderId?: string | null;
+  order?: number;
+  projectLayoutVersion?: number;
   sourceImportId?: string | null;
   sourcePointer?: string;
   sourceDefinition?: string;

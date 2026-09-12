@@ -208,7 +208,7 @@ export function exportImportedOpenApi(
   const endpoints = collectProjectEndpoints(project);
   const native = exportOpenApi(project); // also validates all current route identities
   const sources = (project.specificationImports || []).filter(
-    (s) => s.format === "openapi",
+    (s) => s.format === "openapi" && s.active !== false,
   );
   if (!sources.length) return native;
   let result: Record<string, unknown> | undefined;
@@ -406,7 +406,7 @@ export function exportImportedPostman(
   const endpoints = collectProjectEndpoints(project);
   const native = exportPostman(project);
   const sources = (project.specificationImports || []).filter(
-    (s) => s.format === "postman",
+    (s) => s.format === "postman" && s.active !== false,
   );
   if (!sources.length) return native;
   const roots: Record<string, unknown>[] = [];

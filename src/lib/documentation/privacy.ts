@@ -359,9 +359,13 @@ export function sanitizeDocumentationProject(
       id: folder.id,
       name: folder.name,
       parentId: folder.parentId,
-      endpoints: folder.endpoints?.map(sanitizeDocumentationEndpoint),
+      endpoints: folder.endpoints
+        ?.filter((e) => !e.deletedAt)
+        .map(sanitizeDocumentationEndpoint),
     })),
-    endpoints: project.endpoints.map(sanitizeDocumentationEndpoint),
+    endpoints: project.endpoints
+      .filter((e) => !e.deletedAt)
+      .map(sanitizeDocumentationEndpoint),
     environments: [],
     globalHeaders: [],
     globalParams: [],

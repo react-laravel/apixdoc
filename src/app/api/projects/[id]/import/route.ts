@@ -1,3 +1,12 @@
+import {
+  ensureFolderIsolation,
+  lockDocumentProject,
+  archiveDocumentInTransaction,
+  recordDocumentRevision,
+  documentInclude,
+  bumpLayout,
+} from "@/lib/documents/service";
+import { DocumentError } from "@/lib/documents/http";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
@@ -9,6 +18,7 @@ import { previewImport } from "@/lib/specification/preview";
 const include = {
   folders: true,
   endpoints: {
+    where: { deletedAt: null },
     include: {
       parameters: true,
       headers: true,
@@ -16,7 +26,7 @@ const include = {
       responses: true,
     },
   },
-  specificationImports: true,
+  specificationImports: { where: { active: true } },
   environments: true,
   globalHeaders: true,
   globalParams: true,
@@ -53,6 +63,7 @@ export async function POST(
       throw new ImportError("导入参数不正确");
     const result = await prisma.$transaction(
       async (tx) => {
+        await lockDocumentProject(tx, id, session.user!);
         const project = await tx.project.findUnique({ where: { id }, include });
         if (!project) throw new ImportError("Project not found", 404);
         const member = await tx.organizationMember.findUnique({
@@ -79,9 +90,27 @@ export async function POST(
         if (body.mode === "replace" && body.confirmation !== project.name)
           throw new ImportError("请输入完整项目名称以确认替换");
         if (body.mode === "replace") {
-          await tx.apiEndpoint.deleteMany({ where: { projectId: id } });
+          await ensureFolderIsolation(
+            tx,
+            id,
+            project.folders.map((folder) => folder.id),
+          );
+          const oldEndpoints = await tx.apiEndpoint.findMany({
+            where: { projectId: id, deletedAt: null },
+            include: documentInclude,
+          });
+          for (const endpoint of oldEndpoints)
+            await archiveDocumentInTransaction(
+              tx,
+              endpoint,
+              session.user!,
+              "replaced",
+            );
           await tx.folder.deleteMany({ where: { projectId: id } });
-          await tx.specificationImport.deleteMany({ where: { projectId: id } });
+          await tx.specificationImport.updateMany({
+            where: { projectId: id, active: true },
+            data: { active: false },
+          });
         }
         const source = await tx.specificationImport.create({
           data: {
@@ -119,7 +148,7 @@ export async function POST(
             ...fields
           } = endpoint;
           void folderPath;
-          await tx.apiEndpoint.create({
+          const created = await tx.apiEndpoint.create({
             data: {
               ...fields,
               projectId: id,
@@ -130,13 +159,22 @@ export async function POST(
                 (body.mode === "append"
                   ? Math.max(-1, ...project.endpoints.map((e) => e.order)) + 1
                   : 0) + index,
-              parameters: { create: parameters },
-              headers: { create: headers },
+              parameters: {
+                create: parameters?.map((p, order) => ({ ...p, order })),
+              },
+              headers: {
+                create: headers?.map((h, order) => ({ ...h, order })),
+              },
               ...(requestBody ? { requestBody: { create: requestBody } } : {}),
-              responses: { create: responses },
+              responses: {
+                create: responses?.map((r, order) => ({ ...r, order })),
+              },
             },
+            include: documentInclude,
           });
+          await recordDocumentRevision(tx, created, session.user!, "imported");
         }
+        await bumpLayout(tx, id);
         if (body.importEnvironments === true && plan.environments.length) {
           const names = new Set(project.environments.map((env) => env.name));
           await tx.environment.createMany({
@@ -186,7 +224,7 @@ export async function POST(
       {
         status: conflict
           ? 409
-          : error instanceof ImportError
+          : error instanceof ImportError || error instanceof DocumentError
             ? error.status
             : 400,
       },

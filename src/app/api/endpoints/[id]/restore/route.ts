@@ -1,5 +1,5 @@
 import { documentActor } from "@/lib/documents/routes";
-import { updateDocument } from "@/lib/documents/service";
+import { restoreDocument } from "@/lib/documents/service";
 import {
   documentSuccess,
   documentFailure,
@@ -12,8 +12,14 @@ export async function POST(
   try {
     const { id } = await params;
     const actor = await documentActor(id);
+    const body = await documentBody(request);
     return documentSuccess(
-      await updateDocument(id, actor, "headers", await documentBody(request)),
+      await restoreDocument(
+        id,
+        typeof body.revisionId === "string" ? body.revisionId : undefined,
+        actor,
+        body,
+      ),
     );
   } catch (error) {
     return documentFailure(error);

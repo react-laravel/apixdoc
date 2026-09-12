@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/select";
 
 interface RequestBodyPanelProps {
+  enabled?: boolean;
+  onEnabledChange?: (value: boolean) => void;
   contentTypes?: string[];
   contentType: string;
   schema: string;
@@ -25,6 +27,8 @@ interface RequestBodyPanelProps {
 }
 
 export function RequestBodyPanel({
+  enabled = true,
+  onEnabledChange,
   contentType,
   contentTypes = [],
   schema,
@@ -36,8 +40,36 @@ export function RequestBodyPanel({
   saving = false,
   duplicateFields,
 }: RequestBodyPanelProps) {
+  if (!enabled)
+    return (
+      <div className="space-y-3">
+        <p className="rounded-lg border border-dashed p-8 text-sm text-zinc-500">
+          当前接口未定义请求体
+        </p>
+        <Button
+          variant="outline"
+          onClick={() => onEnabledChange?.(true)}
+          disabled={saving}
+        >
+          添加请求体
+        </Button>
+        <Button className="ml-2" onClick={onSave} disabled={saving}>
+          保存
+        </Button>
+      </div>
+    );
   return (
     <div className="space-y-4">
+      {onEnabledChange && (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={saving}
+          onClick={() => onEnabledChange(false)}
+        >
+          移除请求体
+        </Button>
+      )}
       <div>
         <label className="mb-1 block text-sm font-medium">Content-Type</label>
         <Select value={contentType} onValueChange={onContentTypeChange}>

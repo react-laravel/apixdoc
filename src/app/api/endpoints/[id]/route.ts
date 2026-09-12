@@ -1,13 +1,24 @@
+import { documentActor } from "@/lib/documents/routes";
+import {
+  documentInclude,
+  updateDocument,
+  archiveDocument,
+} from "@/lib/documents/service";
+import {
+  documentSuccess,
+  documentFailure,
+  documentBody,
+} from "@/lib/documents/http";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { canEditContent, getProjectAccess } from "@/lib/permissions";
+import { getProjectAccess } from "@/lib/permissions";
 import { sanitizeDocumentationEndpoint } from "@/lib/documentation/privacy";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const { id } = await params;
@@ -15,14 +26,14 @@ export async function GET(
     const endpoint = await prisma.apiEndpoint.findUnique({
       where: { id },
       include: {
-        parameters: true,
-        headers: true,
-        requestBody: true,
-        responses: {
-          orderBy: { statusCode: "asc" },
-        },
+        ...documentInclude,
         project: {
-          select: { id: true, name: true, isPublic: true, organizationId: true },
+          select: {
+            id: true,
+            name: true,
+            isPublic: true,
+            organizationId: true,
+          },
         },
       },
     });
@@ -30,143 +41,69 @@ export async function GET(
     if (!endpoint) {
       return NextResponse.json(
         { success: false, error: "Endpoint not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     const session = await auth();
-    const { permissions } = await getProjectAccess(endpoint.project.id, session?.user?.id);
-    if (!permissions.canRead) return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
-    return NextResponse.json({ success: true, data: permissions.canReadConfiguration ? endpoint : sanitizeDocumentationEndpoint(endpoint) });
+    const { permissions } = await getProjectAccess(
+      endpoint.project.id,
+      session?.user?.id,
+    );
+    if (!permissions.canRead)
+      return NextResponse.json(
+        { success: false, error: "Forbidden" },
+        { status: 403 },
+      );
+    if (endpoint.deletedAt)
+      return NextResponse.json(
+        {
+          success: false,
+          error: permissions.canReadConfiguration
+            ? "接口已移入回收站"
+            : "接口不存在",
+        },
+        { status: permissions.canReadConfiguration ? 410 : 404 },
+      );
+    return NextResponse.json({
+      success: true,
+      data: permissions.canReadConfiguration
+        ? endpoint
+        : sanitizeDocumentationEndpoint(endpoint),
+    });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch endpoint" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function PUT(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<ApiResponse>> {
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
     const { id } = await params;
-
-    const endpoint = await prisma.apiEndpoint.findUnique({
-      where: { id },
-      include: { project: true },
-    });
-
-    if (!endpoint) {
-      return NextResponse.json(
-        { success: false, error: "Endpoint not found" },
-        { status: 404 }
-      );
-    }
-
-    const member = await prisma.organizationMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: session.user.id,
-          organizationId: endpoint.project.organizationId,
-        },
-      },
-    });
-
-    if (!canEditContent(member?.role)) {
-      return NextResponse.json(
-        { success: false, error: "Forbidden" },
-        { status: 403 }
-      );
-    }
-
-    const body = await request.json();
-    const { name, method, path, description, folderId, order } = body;
-    if (folderId && !await prisma.folder.findFirst({ where: { id: folderId, projectId: endpoint.projectId }, select: { id: true } })) {
-      return NextResponse.json({ success: false, error: "Invalid folder" }, { status: 400 });
-    }
-
-
-    const updated = await prisma.apiEndpoint.update({
-      where: { id },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(method !== undefined && { method }),
-        ...(path !== undefined && { path }),
-        ...(description !== undefined && { description }),
-        ...(folderId !== undefined && { folderId }),
-        ...(order !== undefined && { order }),
-      },
-    });
-
-    return NextResponse.json({ success: true, data: updated });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to update endpoint" },
-      { status: 500 }
+    const actor = await documentActor(id);
+    return documentSuccess(
+      await updateDocument(id, actor, "basic", await documentBody(request)),
     );
+  } catch (error) {
+    return documentFailure(error);
   }
 }
-
 export async function DELETE(
-  _request: Request,
-  { params }: { params: Promise<{ id: string }> }
-): Promise<NextResponse<ApiResponse>> {
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
   try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 }
-      );
-    }
-
     const { id } = await params;
-
-    const endpoint = await prisma.apiEndpoint.findUnique({
-      where: { id },
-      include: { project: true },
-    });
-
-    if (!endpoint) {
-      return NextResponse.json(
-        { success: false, error: "Endpoint not found" },
-        { status: 404 }
-      );
-    }
-
-    const member = await prisma.organizationMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: session.user.id,
-          organizationId: endpoint.project.organizationId,
-        },
-      },
-    });
-
-    if (!canEditContent(member?.role)) {
-      return NextResponse.json(
-        { success: false, error: "Forbidden" },
-        { status: 403 }
-      );
-    }
-
-    await prisma.apiEndpoint.delete({ where: { id } });
-
-    return NextResponse.json({ success: true, data: { id } });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to delete endpoint" },
-      { status: 500 }
+    const actor = await documentActor(id);
+    return documentSuccess(
+      await archiveDocument(id, actor, await documentBody(request)),
     );
+  } catch (error) {
+    return documentFailure(error);
   }
 }

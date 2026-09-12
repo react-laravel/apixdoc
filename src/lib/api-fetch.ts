@@ -2,34 +2,42 @@ export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  code?: string;
 }
-
-/**
- * Shared API fetch wrapper.
- *
- * - Always sends/receives JSON
- * - Throws on network errors
- * - Throws with the server's error message on `success: false`
- * - Returns `response.data` on success
- */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public data?: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 export async function apiFetch<T>(
   url: string,
   options?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(options?.headers ?? {}) },
-    ...options,
-  });
-
-  const json = (await res.json()) as ApiResponse<T>;
-
-  if (!res.ok) {
-    throw new Error(json.error ?? `HTTP ${res.status}`);
+  const headers = new Headers(options?.headers);
+  if (!headers.has("Content-Type"))
+    headers.set("Content-Type", "application/json");
+  const response = await fetch(url, { ...options, headers });
+  let body: ApiResponse<T>;
+  try {
+    body = await response.json();
+  } catch {
+    throw new ApiError(
+      "服务器返回了无法读取的内容，请稍后重试",
+      response.status,
+    );
   }
-
-  if (!json.success) {
-    throw new Error(json.error ?? "请求失败");
-  }
-
-  return json.data as T;
+  if (!response.ok || !body.success)
+    throw new ApiError(
+      body.error || `请求失败（${response.status}）`,
+      response.status,
+      body.code,
+      body.data,
+    );
+  return body.data as T;
 }

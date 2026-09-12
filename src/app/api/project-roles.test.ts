@@ -40,6 +40,7 @@ vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: { id: "user" } }) }));
 vi.mock("@/lib/prisma", () => {
   const project = {
     id: "p",
+    layoutVersion: 1,
     organizationId: "org",
     isPublic: false,
     folders: [],
@@ -55,47 +56,60 @@ vi.mock("@/lib/prisma", () => {
     deleteMany: write,
     createMany: write,
   };
+  const client = {
+    project: { ...model, findUnique: async () => project },
+    apiEndpoint: {
+      ...model,
+      findUnique: async () => ({
+        id: "e",
+        version: 1,
+        projectId: "p",
+        project,
+        folderId: state.sourceFolderId,
+        name: "Endpoint",
+        method: "GET",
+        path: "/users",
+        description: "",
+        order: 0,
+        parameters: [],
+        headers: [],
+        responses: [],
+      }),
+    },
+    folder: {
+      ...model,
+      findUnique: async () => ({ id: "f", projectId: "p", project }),
+      findFirst: async () => (state.foreignFolder ? null : { id: "child" }),
+      findMany: async () => [
+        { id: "f", parentId: null, name: "Folder", order: 0 },
+        { id: "child", parentId: "f", name: "Child", order: 1 },
+      ],
+    },
+    organizationMember: {
+      findUnique: async () => ({ id: "m", role: state.role }),
+      findFirst: async () => ({ id: "m", role: state.role }),
+    },
+    endpointParam: model,
+    endpointHeader: model,
+    endpointResponse: model,
+    requestBody: model,
+    environment: model,
+    globalHeader: model,
+    globalParam: model,
+    $queryRaw: async () => [{ id: "p" }],
+    endpointRevision: {
+      findUnique: async () => null,
+      create: vi.fn(),
+      findMany: async () => [],
+      deleteMany: vi.fn(),
+    },
+  };
   return {
     prisma: {
-      project: { ...model, findUnique: async () => project },
-      apiEndpoint: {
-        ...model,
-        findUnique: async () => ({
-          id: "e",
-          projectId: "p",
-          project,
-          folderId: state.sourceFolderId,
-          name: "Endpoint",
-          method: "GET",
-          path: "/users",
-          description: "",
-          order: 0,
-          parameters: [],
-          headers: [],
-          responses: [],
-        }),
-      },
-      folder: {
-        ...model,
-        findUnique: async () => ({ id: "f", projectId: "p", project }),
-        findFirst: async () => (state.foreignFolder ? null : { id: "child" }),
-        findMany: async () => [
-          { id: "f", parentId: null },
-          { id: "child", parentId: "f" },
-        ],
-      },
-      organizationMember: {
-        findUnique: async () => ({ id: "m", role: state.role }),
-        findFirst: async () => ({ id: "m", role: state.role }),
-      },
-      endpointParam: model,
-      endpointHeader: model,
-      endpointResponse: model,
-      requestBody: model,
-      environment: model,
-      globalHeader: model,
-      globalParam: model,
-      $transaction: write,
+      ...client,
+      $transaction: async (
+        work: ((tx: typeof client) => unknown) | unknown[],
+      ) => (typeof work === "function" ? work(client) : Promise.all(work)),
     },
   };
 });
@@ -107,6 +121,7 @@ beforeEach(() => {
 });
 const context = { params: Promise.resolve({ id: "p" }) };
 const payload = {
+  version: 1,
   name: "Name",
   path: "/users",
   method: "GET",
@@ -213,12 +228,12 @@ describe("read-only project members", () => {
         await updateEndpoint(
           new Request("https://app.test", {
             method: "PUT",
-            body: JSON.stringify({ folderId: "foreign" }),
+            body: JSON.stringify({ folderId: "foreign", version: 1 }),
           }),
           context,
         )
       ).status,
-    ).toBe(400);
+    ).toBe(409);
     expect(write).not.toHaveBeenCalled();
   });
   it("rejects a folder cycle through the direct update API", async () => {
@@ -226,7 +241,7 @@ describe("read-only project members", () => {
     const result = await updateFolder(
       new Request("https://app.test", {
         method: "PUT",
-        body: JSON.stringify({ parentId: "child" }),
+        body: JSON.stringify({ parentId: "child", version: 1 }),
       }),
       { params: Promise.resolve({ id: "f" }) },
     );

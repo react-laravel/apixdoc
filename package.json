@@ -15,7 +15,8 @@
     "db:seed": "npx tsx prisma/seed.ts",
     "db:migrate": "npx prisma migrate dev",
     "db:studio": "npx prisma studio",
-    "test:team": "tsx scripts/verify-team.ts"
+    "test:team": "tsx scripts/verify-team.ts",
+    "test:documents": "tsx scripts/verify-documents.ts"
   },
   "prisma": {
     "seed": "npx tsx prisma/seed.ts"

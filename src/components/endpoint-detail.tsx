@@ -2,8 +2,16 @@
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { apiFetch } from "@/lib/api-fetch";
-import { Copy, Trash2 } from "lucide-react";
+import { documentSnapshot } from "@/lib/documents/model";
+import type { DocumentSection } from "@/lib/documents/model";
+import {
+  DocumentConflictDialog,
+  type DocumentConflict,
+} from "@/components/document-conflict";
+import { DocumentHistory } from "@/components/document-history";
+import { HeadersPanel } from "@/components/endpoint-detail/headers-panel";
+import { apiFetch, ApiError } from "@/lib/api-fetch";
+import { Copy, Trash2, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MethodBadge } from "@/components/method-badge";
 import type {
@@ -28,6 +36,35 @@ import {
 import { JsonWorkbench } from "@/components/json/json-workbench";
 import { TestPanel } from "@/components/endpoint-detail/test-panel";
 
+function editorDrafts(endpoint: EndpointDetailData) {
+  const body = endpoint.requestBody;
+  const doc = documentSnapshot({
+    ...endpoint,
+    requestBody: body
+      ? {
+          ...body,
+          content: mergeMedia(
+            body.content,
+            body.contentType,
+            body.schema,
+            body.example,
+          ),
+        }
+      : null,
+  });
+  return {
+    basic: {
+      name: doc.name,
+      method: doc.method,
+      path: doc.path,
+      description: doc.description,
+    },
+    params: { parameters: doc.parameters },
+    headers: { headers: doc.headers },
+    body: { requestBody: doc.requestBody },
+    responses: { responses: doc.responses },
+  };
+}
 interface EndpointDetailProps {
   onCopy?: () => void;
   onDelete?: () => void;
@@ -38,7 +75,12 @@ interface EndpointDetailProps {
   projectBaseUrl: string;
   globalHeaders: GlobalHeader[];
   globalParams: GlobalParam[];
-  onSave: (data: Partial<EndpointDetailData>) => Promise<boolean>;
+  onSave: (
+    data: Partial<EndpointDetailData>,
+    version: number,
+    section: DocumentSection,
+  ) => Promise<EndpointDetailData>;
+  onRestored?: (endpoint: EndpointDetailData) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }
 
@@ -50,6 +92,7 @@ export function EndpointDetail({
   globalHeaders,
   globalParams,
   onSave,
+  onRestored,
   onDirtyChange,
   onCopy,
   onDelete,
@@ -76,6 +119,10 @@ export function EndpointDetail({
     endpoint.parameters ?? [],
   );
 
+  const [headers, setHeaders] = useState(endpoint.headers || []);
+  const [bodyEnabled, setBodyEnabled] = useState(!!endpoint.requestBody);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [conflict, setConflict] = useState<DocumentConflict | null>(null);
   // Request body
   const [bodyContentType, setBodyContentType] = useState(
     endpoint.requestBody?.contentType || "application/json",
@@ -101,54 +148,24 @@ export function EndpointDetail({
   const [saving, setSaving] = useState(false);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const savingRef = useRef(false);
-  const drafts = {
-    basic: { name, method, path, description },
-    params: {
-      parameters: params.map(
-        ({ name, type, required, location, description, example, schema }) => ({
-          schema,
-          name,
-          type,
-          required,
-          location,
-          description,
-          example,
-        }),
-      ),
-    },
-    body: {
-      requestBody: {
-        content: mergeMedia(
-          bodyContent,
-          bodyContentType,
-          bodySchema,
-          bodyExample,
-        ),
-        contentType: bodyContentType,
-        schema: bodySchema,
-        example: bodyExample,
-      },
-    },
-    responses: {
-      responses: responses.map(
-        ({
-          statusCode,
-          statusKey,
-          description,
-          contentType,
-          example,
-          schema,
-        }) => ({
-          statusCode,
-          statusKey,
-          description,
-          contentType,
-          example,
-          schema,
-        }),
-      ),
-    },
-  };
+  const drafts = editorDrafts({
+    ...endpoint,
+    name,
+    method,
+    path,
+    description,
+    parameters: params,
+    headers,
+    requestBody: bodyEnabled
+      ? {
+          contentType: bodyContentType,
+          schema: bodySchema,
+          example: bodyExample,
+          content: bodyContent,
+        }
+      : null,
+    responses,
+  });
   type Section = keyof typeof drafts;
   const [savedDrafts, setSavedDrafts] = useState(() =>
     Object.fromEntries(
@@ -158,6 +175,59 @@ export function EndpointDetail({
       ]),
     ),
   );
+  const [baseVersions, setBaseVersions] = useState(() =>
+    Object.fromEntries(
+      Object.keys(drafts).map((key) => [key, endpoint.version || 1]),
+    ),
+  );
+  const hydratedVersion = useRef(endpoint.version || 1);
+  const acknowledge = useCallback(
+    (next: EndpointDetailData, force?: Section | "all") => {
+      const values = editorDrafts(next);
+      const sections = (Object.keys(values) as Section[]).filter(
+        (section) =>
+          force === "all" ||
+          force === section ||
+          JSON.stringify(drafts[section]) === savedDrafts[section],
+      );
+      if (sections.includes("basic")) {
+        setName(next.name);
+        setMethod(next.method);
+        setPath(next.path);
+        setDescription(next.description);
+      }
+      if (sections.includes("params")) setParams(values.params.parameters);
+      if (sections.includes("headers")) setHeaders(values.headers.headers);
+      if (sections.includes("responses"))
+        setResponses(values.responses.responses);
+      if (sections.includes("body")) {
+        const body = values.body.requestBody;
+        setBodyEnabled(!!body);
+        setBodyContentType(body?.contentType || "application/json");
+        setBodySchema(body?.schema || "");
+        setBodyExample(body?.example || "");
+        setBodyContent(body?.content || "{}");
+      }
+      setSavedDrafts((previous) => ({
+        ...previous,
+        ...Object.fromEntries(
+          sections.map((section) => [section, JSON.stringify(values[section])]),
+        ),
+      }));
+      setBaseVersions((previous) => ({
+        ...previous,
+        ...Object.fromEntries(
+          sections.map((section) => [section, next.version || 1]),
+        ),
+      }));
+      hydratedVersion.current = next.version || 1;
+    },
+    [drafts, savedDrafts],
+  );
+  useEffect(() => {
+    if ((endpoint.version || 1) !== hydratedVersion.current)
+      acknowledge(endpoint);
+  }, [endpoint, acknowledge]);
   const dirtySections = (Object.keys(drafts) as Section[]).filter(
     (key) => JSON.stringify(drafts[key]) !== savedDrafts[key],
   );
@@ -199,13 +269,17 @@ export function EndpointDetail({
     };
   }, [dirty, saving]);
 
-  const saveSection = async (section: Section) => {
+  const saveSection = async (
+    section: Section,
+    replacement?: Record<string, unknown>,
+    version?: number,
+  ) => {
     if (savingRef.current) return;
     if (section === "basic" && !path.trim()) {
       setSaveNotice("请填写接口路径");
       return;
     }
-    if (section === "body") {
+    if (section === "body" && bodyEnabled && !replacement) {
       try {
         parseDocumentJson(bodySchema || "{}");
       } catch {
@@ -213,22 +287,25 @@ export function EndpointDetail({
         return;
       }
     }
-    const submitted = drafts[section];
+    const submitted = replacement || drafts[section];
     savingRef.current = true;
     setSaving(true);
     setSaveNotice(null);
     try {
-      if (await onSave(submitted)) {
-        setSavedDrafts((previous) => ({
-          ...previous,
-          [section]: JSON.stringify(submitted),
-        }));
-        setSaveNotice("已保存");
-      } else {
-        setSaveNotice("保存失败，修改已保留，请重试");
-      }
-    } catch {
-      setSaveNotice("保存失败，修改已保留，请重试");
+      const updated = await onSave(
+        submitted,
+        version ?? baseVersions[section],
+        section,
+      );
+      acknowledge(updated, section);
+      setConflict(null);
+      setSaveNotice(updated.saveMerged ? "已合并其他人的修改并保存" : "已保存");
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "DOCUMENT_CONFLICT")
+        setConflict(error.data as DocumentConflict);
+      setSaveNotice(
+        error instanceof Error ? error.message : "保存失败，修改已保留，请重试",
+      );
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -423,6 +500,15 @@ export function EndpointDetail({
           </span>
         )}
         <div className="ml-auto flex gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={saving || actionBusy}
+            onClick={() => setHistoryOpen(true)}
+          >
+            <History className="size-3.5" />
+            版本历史
+          </Button>
           {onCopy && (
             <Button
               variant="ghost"
@@ -467,10 +553,37 @@ export function EndpointDetail({
               ? `${dirtySections.length} 个分区有未保存修改`
               : "所有修改已保存"}
         </span>
+        <span className="text-zinc-400">v{endpoint.version || 1}</span>
         {saveNotice && (dirty || saveNotice !== "已保存") && (
           <span className="text-zinc-500">{saveNotice}</span>
         )}
       </div>
+      {conflict && (
+        <DocumentConflictDialog
+          key={`${conflict.section}-${conflict.version}`}
+          conflict={conflict}
+          saving={saving}
+          onClose={() => setConflict(null)}
+          onResolve={(value, version) =>
+            saveSection(conflict.section, value, version)
+          }
+        />
+      )}
+      {historyOpen && (
+        <DocumentHistory
+          endpointId={endpoint.id}
+          onClose={() => setHistoryOpen(false)}
+          beforeRestore={() =>
+            !dirty ||
+            window.confirm("恢复版本会替换当前未保存修改，确定继续吗？")
+          }
+          onRestored={(updated) => {
+            acknowledge(updated, "all");
+            onRestored?.(updated);
+            setSaveNotice(updated.restoreNotice || "已恢复历史版本");
+          }}
+        />
+      )}
       <fieldset disabled={saving} className="min-w-0">
         <Tabs
           value={activeTab}
@@ -485,6 +598,7 @@ export function EndpointDetail({
           <TabsList className="mb-4 w-full justify-start overflow-x-auto">
             <TabsTrigger value="basic">基本信息</TabsTrigger>
             <TabsTrigger value="params">请求参数</TabsTrigger>
+            <TabsTrigger value="headers">请求头</TabsTrigger>
             <TabsTrigger value="body">请求体</TabsTrigger>
             <TabsTrigger value="responses">响应</TabsTrigger>
             {endpoint.sourceImportId && (
@@ -532,8 +646,18 @@ export function EndpointDetail({
             />
           </TabsContent>
 
+          <TabsContent value="headers">
+            <HeadersPanel
+              headers={headers}
+              onChange={setHeaders}
+              onSave={() => saveSection("headers")}
+              saving={saving}
+            />
+          </TabsContent>
           <TabsContent value="body">
             <RequestBodyPanel
+              enabled={bodyEnabled}
+              onEnabledChange={setBodyEnabled}
               contentType={bodyContentType}
               schema={bodySchema}
               example={bodyExample}
@@ -589,7 +713,7 @@ export function EndpointDetail({
                 projectId={projectId}
                 endpointId={endpoint.id}
                 environments={environments}
-                endpointHeaders={endpoint.headers}
+                endpointHeaders={headers}
                 endpointAuth={endpoint.auth}
                 endpointVariables={sourceVariables}
                 endpointServerUrl={endpoint.serverUrl}
@@ -599,7 +723,7 @@ export function EndpointDetail({
                 globalHeaders={globalHeaders}
                 globalParams={globalParams}
                 params={params}
-                bodyExample={bodyExample}
+                bodyExample={bodyEnabled ? bodyExample : ""}
                 bodyContentType={bodyContentType}
                 onSend={async ({ signal, ...request }) =>
                   apiFetch<SendRequestResult>("/api/proxy", {

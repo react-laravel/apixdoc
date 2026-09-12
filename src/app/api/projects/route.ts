@@ -5,7 +5,7 @@ import { canEditContent } from "@/lib/permissions";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
-  request: Request
+  request: Request,
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
@@ -15,7 +15,7 @@ export async function GET(
     if (!organizationId) {
       return NextResponse.json(
         { success: false, error: "organizationId is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -40,7 +40,7 @@ export async function GET(
           select: { id: true, name: true },
         },
         _count: {
-          select: { endpoints: true, folders: true },
+          select: { endpoints: { where: { deletedAt: null } }, folders: true },
         },
       },
       orderBy: { createdAt: "desc" },
@@ -50,20 +50,20 @@ export async function GET(
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch projects" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function POST(
-  request: Request
+  request: Request,
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -73,7 +73,7 @@ export async function POST(
     if (!name || !organizationId) {
       return NextResponse.json(
         { success: false, error: "Name and organizationId are required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -89,7 +89,7 @@ export async function POST(
     if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -103,14 +103,11 @@ export async function POST(
       },
     });
 
-    return NextResponse.json(
-      { success: true, data: project },
-      { status: 201 }
-    );
+    return NextResponse.json({ success: true, data: project }, { status: 201 });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to create project" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

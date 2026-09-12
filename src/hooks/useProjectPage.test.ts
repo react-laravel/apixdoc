@@ -4,6 +4,7 @@ import { useProjectPage } from "@/hooks/useProjectPage";
 
 const mockProject = {
   id: "proj-1",
+  layoutVersion: 1,
   name: "Test Project",
   description: "A test project",
   baseUrl: "https://api.test.com",
@@ -15,6 +16,7 @@ const mockProject = {
   endpoints: [
     {
       id: "ep-1",
+      version: 1,
       name: "Test Endpoint",
       method: "GET",
       path: "/api/test",
@@ -84,7 +86,8 @@ describe("useProjectPage", () => {
     global.fetch = vi.fn(() =>
       Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ success: true, data: projectWithFolders }),
+        json: () =>
+          Promise.resolve({ success: true, data: projectWithFolders }),
       } as Response),
     ) as unknown as typeof fetch;
 
@@ -265,13 +268,21 @@ describe("useProjectPage", () => {
 
   it("saves endpoint basic info without error", async () => {
     global.fetch = vi.fn((url: string, options?: RequestInit) => {
-      if (options?.method === "PUT" && typeof url === "string" && url.includes("/endpoints/")) {
+      if (
+        options?.method === "PUT" &&
+        typeof url === "string" &&
+        url.includes("/endpoints/")
+      ) {
         return Promise.resolve({
           ok: true,
           json: () =>
             Promise.resolve({
               success: true,
-              data: { id: "ep-1", name: "Updated Name" },
+              data: {
+                ...mockProject.endpoints[0],
+                version: 2,
+                name: "Updated Name",
+              },
             }),
         } as Response);
       }
@@ -287,23 +298,31 @@ describe("useProjectPage", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
+    act(() => result.current.handleSelectEndpoint("ep-1"));
     await act(async () => {
-      result.current.handleSelectEndpoint("ep-1");
-      await result.current.handleSaveEndpoint({
-        id: "ep-1",
-        name: "Updated Name",
-        method: "GET",
-        path: "/api/test",
-        description: "Test endpoint",
-      });
+      await result.current.handleSaveEndpoint(
+        {
+          id: "ep-1",
+          name: "Updated Name",
+          method: "GET",
+          path: "/api/test",
+          description: "Test endpoint",
+        },
+        1,
+        "basic",
+      );
     });
 
     expect(result.current.saveError).toBeNull();
   });
 
-  it("sets saveError when API returns failure", async () => {
+  it("preserves server errors for the editor when saving fails", async () => {
     global.fetch = vi.fn((url: string, options?: RequestInit) => {
-      if (options?.method === "PUT" && typeof url === "string" && url.includes("/endpoints/")) {
+      if (
+        options?.method === "PUT" &&
+        typeof url === "string" &&
+        url.includes("/endpoints/")
+      ) {
         return Promise.resolve({
           ok: true,
           json: () =>
@@ -330,10 +349,13 @@ describe("useProjectPage", () => {
     });
 
     await act(async () => {
-      await result.current.handleSaveEndpoint({
-        id: "ep-1",
-        name: "Updated",
-      });
+      await expect(
+        result.current.handleSaveEndpoint(
+          { id: "ep-1", name: "Updated" },
+          1,
+          "basic",
+        ),
+      ).rejects.toThrow("Save failed");
     });
 
     // React 19 concurrent mode needs a flush for the catch-block state update
@@ -341,7 +363,7 @@ describe("useProjectPage", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
 
-    expect(result.current.saveError).toBe("Save failed");
+    expect(result.current.saveError).toBeNull();
   });
 
   it("clears save error on endpoint selection", async () => {
@@ -374,7 +396,24 @@ describe("useProjectPage", () => {
       if (options?.method === "POST" && url === "/api/endpoints/ep-1/params") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: [{ name: "id", type: "string", required: true, location: "path", description: "", example: "" }] }),
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: {
+                ...mockProject.endpoints[0],
+                version: 2,
+                parameters: [
+                  {
+                    name: "id",
+                    type: "string",
+                    required: true,
+                    location: "path",
+                    description: "",
+                    example: "",
+                  },
+                ],
+              },
+            }),
         } as Response);
       }
       return Promise.resolve({
@@ -385,18 +424,37 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
-
-    act(() => { result.current.handleSelectEndpoint("ep-1"); });
-
     await act(async () => {
-      await result.current.handleSaveEndpoint({
-        id: "ep-1",
-        parameters: [{ name: "id", type: "string", required: true, location: "path", description: "", example: "" }],
-      });
+      await new Promise((r) => setTimeout(r, 50));
     });
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    act(() => {
+      result.current.handleSelectEndpoint("ep-1");
+    });
+
+    await act(async () => {
+      await result.current.handleSaveEndpoint(
+        {
+          id: "ep-1",
+          parameters: [
+            {
+              name: "id",
+              type: "string",
+              required: true,
+              location: "path",
+              description: "",
+              example: "",
+            },
+          ],
+        },
+        1,
+        "params",
+      );
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(result.current.saveError).toBeNull();
   });
 
@@ -405,7 +463,19 @@ describe("useProjectPage", () => {
       if (options?.method === "POST" && url === "/api/endpoints/ep-1/body") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: { contentType: "application/json", schema: "{}", example: "{}" } }),
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: {
+                ...mockProject.endpoints[0],
+                version: 2,
+                requestBody: {
+                  contentType: "application/json",
+                  schema: "{}",
+                  example: "{}",
+                },
+              },
+            }),
         } as Response);
       }
       return Promise.resolve({
@@ -416,27 +486,59 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
-
-    act(() => { result.current.handleSelectEndpoint("ep-1"); });
-
     await act(async () => {
-      await result.current.handleSaveEndpoint({
-        id: "ep-1",
-        requestBody: { contentType: "application/json", schema: "{}", example: "{}" },
-      });
+      await new Promise((r) => setTimeout(r, 50));
     });
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    act(() => {
+      result.current.handleSelectEndpoint("ep-1");
+    });
+
+    await act(async () => {
+      await result.current.handleSaveEndpoint(
+        {
+          id: "ep-1",
+          requestBody: {
+            contentType: "application/json",
+            schema: "{}",
+            example: "{}",
+          },
+        },
+        1,
+        "body",
+      );
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(result.current.saveError).toBeNull();
   });
 
   it("saves endpoint responses", async () => {
     global.fetch = vi.fn((url: string, options?: RequestInit) => {
-      if (options?.method === "POST" && url === "/api/endpoints/ep-1/responses") {
+      if (
+        options?.method === "POST" &&
+        url === "/api/endpoints/ep-1/responses"
+      ) {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: [{ statusCode: 200, description: "OK", contentType: "application/json", example: "{}" }] }),
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: {
+                ...mockProject.endpoints[0],
+                version: 2,
+                responses: [
+                  {
+                    statusCode: 200,
+                    description: "OK",
+                    contentType: "application/json",
+                    example: "{}",
+                  },
+                ],
+              },
+            }),
         } as Response);
       }
       return Promise.resolve({
@@ -447,18 +549,35 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
-
-    act(() => { result.current.handleSelectEndpoint("ep-1"); });
-
     await act(async () => {
-      await result.current.handleSaveEndpoint({
-        id: "ep-1",
-        responses: [{ statusCode: 200, description: "OK", contentType: "application/json", example: "{}" }],
-      });
+      await new Promise((r) => setTimeout(r, 50));
     });
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    act(() => {
+      result.current.handleSelectEndpoint("ep-1");
+    });
+
+    await act(async () => {
+      await result.current.handleSaveEndpoint(
+        {
+          id: "ep-1",
+          responses: [
+            {
+              statusCode: 200,
+              description: "OK",
+              contentType: "application/json",
+              example: "{}",
+            },
+          ],
+        },
+        1,
+        "responses",
+      );
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(result.current.saveError).toBeNull();
   });
 
@@ -467,7 +586,11 @@ describe("useProjectPage", () => {
       if (options?.method === "PUT" && url === "/api/projects/proj-1") {
         return Promise.resolve({
           ok: true,
-          json: () => Promise.resolve({ success: true, data: { id: "proj-1", name: "Updated Project" } }),
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { id: "proj-1", name: "Updated Project" },
+            }),
         } as Response);
       }
       return Promise.resolve({
@@ -478,19 +601,26 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     await act(async () => {
       await result.current.handleSaveSettings({ name: "Updated Project" });
     });
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     expect(result.current.project?.name).toBe("Updated Project");
   });
 
   it("reorders folders and endpoints", async () => {
     global.fetch = vi.fn((url: string, options?: RequestInit) => {
-      if (options?.method === "POST" && url === "/api/projects/proj-1/reorder") {
+      if (
+        options?.method === "POST" &&
+        url === "/api/projects/proj-1/reorder"
+      ) {
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true }),
@@ -504,13 +634,20 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
-
     await act(async () => {
-      await result.current.handleReorder([{ id: "f1", order: 0 }], [{ id: "ep-1", order: 0, folderId: null }]);
+      await new Promise((r) => setTimeout(r, 50));
     });
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+    await act(async () => {
+      await result.current.handleReorder(
+        [{ id: "f1", order: 0 }],
+        [{ id: "ep-1", order: 0, folderId: null }],
+      );
+    });
+
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
     // Should refetch project after reorder
     expect(result.current.project).not.toBeNull();
   });
@@ -523,6 +660,7 @@ describe("useProjectPage", () => {
 
     global.fetch = vi.fn((url: string, options?: RequestInit) => {
       if (options?.method === "PUT" && url === "/api/folders/f1") {
+        projectWithFolder.folders[0].name = "New Name";
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({ success: true }),
@@ -536,7 +674,9 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Verify initial state
     expect(result.current.project?.folders[0].name).toBe("Old Name");
@@ -545,8 +685,10 @@ describe("useProjectPage", () => {
       await result.current.handleRenameFolder("f1", "New Name");
     });
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
-    // Optimistic update should rename the folder
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    // Reload the authoritative folder name after its versioned update
     const folder = result.current.project?.folders.find((f) => f.id === "f1");
     expect(folder?.name).toBe("New Name");
   });
@@ -561,7 +703,14 @@ describe("useProjectPage", () => {
       folders: [{ id: "f1", name: "ToDelete", parentId: null }],
       endpoints: [
         ...mockProject.endpoints,
-        { id: "ep-2", name: "In Folder", method: "GET", path: "/api/in", description: "", folderId: "f1" },
+        {
+          id: "ep-2",
+          name: "In Folder",
+          method: "GET",
+          path: "/api/in",
+          description: "",
+          folderId: "f1",
+        },
       ],
     };
 
@@ -580,52 +729,115 @@ describe("useProjectPage", () => {
 
     const { result } = renderHook(() => useProjectPage());
 
-    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
 
     // Verify DELETE API is called and confirm was triggered
     await act(async () => {
       await result.current.handleDeleteFolder("f1");
     });
 
-    expect(confirmMock).toHaveBeenCalledWith("确定要删除此文件夹及子文件夹吗？其中的接口会移至未分组。");
+    expect(confirmMock).toHaveBeenCalledWith(
+      "确定要删除此文件夹及子文件夹吗？其中的接口会移至未分组。",
+    );
 
     // Verify DELETE request was made
     const fetchCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
     const deleteCall = fetchCalls.find(
-      (c: unknown[]) => c[0] === "/api/folders/f1" && (c[1] as RequestInit | undefined)?.method === "DELETE",
+      (c: unknown[]) =>
+        c[0] === "/api/folders/f1" &&
+        (c[1] as RequestInit | undefined)?.method === "DELETE",
     );
     expect(deleteCall).toBeDefined();
   });
 });
 
 describe("project editing regressions", () => {
-  function mockFetch(project: typeof mockProject | Record<string, unknown>, update: unknown) {
-    vi.stubGlobal("fetch", vi.fn((_url: string, options?: RequestInit) => Promise.resolve({
-      ok: true, json: async () => ({ success: true, data: options?.method ? update : project }),
-    } as Response)));
+  function mockFetch(
+    project: typeof mockProject | Record<string, unknown>,
+    update: unknown,
+  ) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, options?: RequestInit) =>
+        Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: options?.method ? update : project,
+          }),
+        } as Response),
+      ),
+    );
   }
 
   it("keeps folder endpoint edits after switching away and back", async () => {
     const endpoint = { ...mockProject.endpoints[0], folderId: "child" };
-    mockFetch({ ...mockProject, endpoints: [], folders: [{ id: "parent", name: "Parent", children: [{ id: "child", name: "Child", endpoints: [endpoint] }] }] }, { ...endpoint, name: "Saved name" });
+    mockFetch(
+      {
+        ...mockProject,
+        endpoints: [],
+        folders: [
+          {
+            id: "parent",
+            name: "Parent",
+            children: [{ id: "child", name: "Child", endpoints: [endpoint] }],
+          },
+        ],
+      },
+      { ...endpoint, name: "Saved name" },
+    );
     const { result } = renderHook(() => useProjectPage());
     await waitFor(() => expect(result.current.loading).toBe(false));
     act(() => result.current.handleSelectEndpoint(endpoint.id));
-    await act(async () => { expect(await result.current.handleSaveEndpoint({ name: "Saved name" })).toBe(true); });
+    await act(async () => {
+      expect(
+        await result.current.handleSaveEndpoint(
+          { name: "Saved name" },
+          1,
+          "basic",
+        ),
+      ).toEqual(expect.objectContaining({ name: "Saved name" }));
+    });
     act(() => result.current.handleSelectEndpoint(null));
     act(() => result.current.handleSelectEndpoint(endpoint.id));
     expect(result.current.selectedEndpoint?.name).toBe("Saved name");
     expect(result.current.allEndpoints).toHaveLength(1);
-    expect(result.current.project?.folders.find((f) => f.id === "child")?.parentId).toBe("parent");
+    expect(
+      result.current.project?.folders.find((f) => f.id === "child")?.parentId,
+    ).toBe("parent");
   });
 
   it("updates parameters of a folder endpoint, including removing every parameter", async () => {
-    const endpoint = { ...mockProject.endpoints[0], folderId: "folder", parameters: [{ name: "id", type: "string", required: true, location: "query", description: "", example: "1" }] };
-    mockFetch({ ...mockProject, endpoints: [], folders: [{ id: "folder", name: "Folder", endpoints: [endpoint] }] }, []);
+    const endpoint = {
+      ...mockProject.endpoints[0],
+      folderId: "folder",
+      parameters: [
+        {
+          name: "id",
+          type: "string",
+          required: true,
+          location: "query",
+          description: "",
+          example: "1",
+        },
+      ],
+    };
+    mockFetch(
+      {
+        ...mockProject,
+        endpoints: [],
+        folders: [{ id: "folder", name: "Folder", endpoints: [endpoint] }],
+      },
+      { ...endpoint, version: 2, parameters: [] },
+    );
     const { result } = renderHook(() => useProjectPage());
     await waitFor(() => expect(result.current.loading).toBe(false));
     act(() => result.current.handleSelectEndpoint(endpoint.id));
-    await act(async () => { await result.current.handleSaveEndpoint({ parameters: [] }); });
+    await act(async () => {
+      await result.current.handleSaveEndpoint({ parameters: [] }, 1, "params");
+    });
     expect(result.current.selectedEndpoint?.parameters).toEqual([]);
   });
 
@@ -636,7 +848,9 @@ describe("project editing regressions", () => {
     act(() => result.current.handleSelectEndpoint("ep-1"));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(fetch).mockRejectedValueOnce(new Error("Delete failed"));
-    await act(async () => { expect(await result.current.handleDeleteFolder("f1")).toBe(false); });
+    await act(async () => {
+      expect(await result.current.handleDeleteFolder("f1")).toBe(false);
+    });
     expect(result.current.selectedEndpointId).toBe("ep-1");
     expect(result.current.saveError).toBe("Delete failed");
   });
@@ -646,7 +860,9 @@ describe("project editing regressions", () => {
     const { result } = renderHook(() => useProjectPage());
     await waitFor(() => expect(result.current.loadError).toBe("Offline"));
     mockFetch(mockProject, {});
-    await act(async () => { await result.current.fetchProject(); });
+    await act(async () => {
+      await result.current.fetchProject();
+    });
     expect(result.current.loadError).toBeNull();
     expect(result.current.project?.id).toBe(mockProject.id);
   });
@@ -656,7 +872,11 @@ describe("project editing regressions", () => {
     const { result } = renderHook(() => useProjectPage());
     await waitFor(() => expect(result.current.loading).toBe(false));
     vi.mocked(fetch).mockRejectedValueOnce(new Error("Save failed"));
-    await act(async () => { expect(await result.current.handleSaveSettings({ name: "Unsaved" })).toBe(false); });
+    await act(async () => {
+      expect(await result.current.handleSaveSettings({ name: "Unsaved" })).toBe(
+        false,
+      );
+    });
     expect(result.current.project?.name).toBe(mockProject.name);
     expect(result.current.saveError).toBe("Save failed");
   });

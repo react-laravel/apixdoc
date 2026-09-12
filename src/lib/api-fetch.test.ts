@@ -44,8 +44,7 @@ describe("apiFetch", () => {
       vi.fn(() =>
         Promise.resolve({
           ok: true,
-          json: () =>
-            Promise.resolve({ success: false, error: "Not found" }),
+          json: () => Promise.resolve({ success: false, error: "Not found" }),
         } as Response),
       ),
     );
@@ -54,7 +53,10 @@ describe("apiFetch", () => {
   });
 
   it("throws on network error", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("Network"))));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("Network"))),
+    );
 
     await expect(apiFetch("/api/test")).rejects.toThrow("Network");
   });
@@ -78,9 +80,9 @@ describe("apiFetch", () => {
     });
 
     expect(capturedOptions?.method).toBe("POST");
-    expect(capturedOptions?.headers).toEqual({
-      "Content-Type": "application/json",
-    });
+    expect(new Headers(capturedOptions?.headers).get("Content-Type")).toBe(
+      "application/json",
+    );
     expect(capturedOptions?.body).toBe(JSON.stringify({ key: "value" }));
   });
 
@@ -98,6 +100,38 @@ describe("apiFetch", () => {
     );
 
     await apiFetch("/api/test");
-    expect(capturedHeaders).toEqual({ "Content-Type": "application/json" });
+    expect(new Headers(capturedHeaders).get("Content-Type")).toBe(
+      "application/json",
+    );
+  });
+});
+
+it("preserves structured conflicts for the editor and merges custom headers", async () => {
+  const details = { version: 4, conflicts: [{ path: "/name" }] };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options: RequestInit) => {
+      expect(new Headers(options.headers).get("Content-Type")).toBe(
+        "application/json",
+      );
+      expect(new Headers(options.headers).get("X-Test")).toBe("value");
+      return {
+        ok: false,
+        status: 409,
+        json: async () => ({
+          success: false,
+          error: "Conflict",
+          code: "DOCUMENT_CONFLICT",
+          data: details,
+        }),
+      };
+    }),
+  );
+  await expect(
+    apiFetch("/api/test", { headers: { "X-Test": "value" } }),
+  ).rejects.toMatchObject({
+    status: 409,
+    code: "DOCUMENT_CONFLICT",
+    data: details,
   });
 });

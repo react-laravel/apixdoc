@@ -1,5 +1,6 @@
 import type { Endpoint, Environment } from "@/lib/types";
 export interface SpecificationSource {
+  active?: boolean;
   id: string;
   name: string;
   format: string;

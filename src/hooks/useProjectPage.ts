@@ -1,7 +1,15 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import { useParams } from "next/navigation";
+import type { DocumentSection } from "@/lib/documents/model";
 import { apiFetch } from "@/lib/api-fetch";
 import {
   type Project,
@@ -43,16 +51,23 @@ export function useProjectPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestVersion = useRef(0);
+  const routeId = useRef(params.id);
+  useLayoutEffect(() => {
+    routeId.current = params.id;
+  }, [params.id]);
 
   const fetchProject = useCallback(async () => {
+    if (routeId.current !== params.id) return;
     const version = ++requestVersion.current;
     setLoadError(null);
     try {
       const data = await apiFetch<Project>(`/api/projects/${params.id}`);
-      if (version !== requestVersion.current) return;
+      if (version !== requestVersion.current || routeId.current !== params.id)
+        return;
       setProject(data ? normalizeProject(data) : null);
     } catch (error) {
-      if (version !== requestVersion.current) return;
+      if (version !== requestVersion.current || routeId.current !== params.id)
+        return;
       setLoadError(
         error instanceof Error ? error.message : "加载项目失败，请重试",
       );
@@ -96,6 +111,7 @@ export function useProjectPage() {
         await apiFetch(`/api/projects/${project.id}/reorder`, {
           method: "POST",
           body: JSON.stringify({
+            version: project.layoutVersion,
             folders: folderUpdates.length > 0 ? folderUpdates : undefined,
             endpoints: endpointUpdates.length > 0 ? endpointUpdates : undefined,
           }),
@@ -124,20 +140,22 @@ export function useProjectPage() {
       if (exists) return "文件夹名称不能重复";
 
       try {
-        const data = await apiFetch<{ id: string; name: string }>(
-          "/api/folders",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              name: normalizedName,
-              projectId: project.id,
-            }),
-          },
-        );
+        const data = await apiFetch<{
+          id: string;
+          name: string;
+          layoutVersion: number;
+        }>("/api/folders", {
+          method: "POST",
+          body: JSON.stringify({
+            name: normalizedName,
+            projectId: project.id,
+          }),
+        });
         setProject((prev) =>
           prev
             ? {
                 ...prev,
+                layoutVersion: data.layoutVersion,
                 folders: [...prev.folders, { id: data.id, name: data.name }],
               }
             : prev,
@@ -164,7 +182,10 @@ export function useProjectPage() {
 
       setSaveError(null);
       try {
-        await apiFetch(`/api/folders/${folderId}`, { method: "DELETE" });
+        await apiFetch(`/api/folders/${folderId}`, {
+          method: "DELETE",
+          body: JSON.stringify({ version: project.layoutVersion }),
+        });
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : "删除文件夹失败");
         return false;
@@ -183,23 +204,17 @@ export function useProjectPage() {
       try {
         await apiFetch(`/api/folders/${folderId}`, {
           method: "PUT",
-          body: JSON.stringify({ name: newName }),
+          body: JSON.stringify({
+            name: newName,
+            version: project.layoutVersion,
+          }),
         });
-        setProject((prev) =>
-          prev
-            ? {
-                ...prev,
-                folders: prev.folders.map((f) =>
-                  f.id === folderId ? { ...f, name: newName } : f,
-                ),
-              }
-            : prev,
-        );
+        await fetchProject();
       } catch (error) {
         setSaveError(error instanceof Error ? error.message : "重命名失败");
       }
     },
-    [project],
+    [project, fetchProject],
   );
 
   const handleCreateEndpoint = useCallback(
@@ -227,7 +242,14 @@ export function useProjectPage() {
           }),
         });
         setProject((prev) =>
-          prev ? { ...prev, endpoints: [...prev.endpoints, created] } : prev,
+          prev && (!created.projectId || prev.id === created.projectId)
+            ? {
+                ...prev,
+                layoutVersion:
+                  created.projectLayoutVersion ?? prev.layoutVersion,
+                endpoints: [...prev.endpoints, created],
+              }
+            : prev,
         );
         setSelectedEndpointId(created.id);
         return { error: undefined };
@@ -244,11 +266,22 @@ export function useProjectPage() {
     try {
       const created = await apiFetch<Endpoint>(
         `/api/endpoints/${selectedEndpointId}/copy`,
-        { method: "POST" },
+        {
+          method: "POST",
+          body: JSON.stringify({
+            version: project.endpoints.find((e) => e.id === selectedEndpointId)
+              ?.version,
+          }),
+        },
       );
       setProject((previous) =>
         previous?.id === project.id
-          ? { ...previous, endpoints: [...previous.endpoints, created] }
+          ? {
+              ...previous,
+              layoutVersion:
+                created.projectLayoutVersion ?? previous.layoutVersion,
+              endpoints: [...previous.endpoints, created],
+            }
           : previous,
       );
       setSelectedEndpointId(created.id);
@@ -266,19 +299,24 @@ export function useProjectPage() {
     );
     if (
       !window.confirm(
-        `确定删除接口「${endpoint?.name || endpoint?.path || ""}」及其参数、响应定义吗？`,
+        `将接口「${endpoint?.name || endpoint?.path || ""}」移入回收站吗？未保存的修改不会保留。`,
       )
     )
       return false;
     setSaveError(null);
     try {
-      await apiFetch(`/api/endpoints/${selectedEndpointId}`, {
-        method: "DELETE",
-      });
+      const removed = await apiFetch<{ layoutVersion: number }>(
+        `/api/endpoints/${selectedEndpointId}`,
+        {
+          method: "DELETE",
+          body: JSON.stringify({ version: endpoint?.version }),
+        },
+      );
       setProject((previous) =>
         previous?.id === project.id
           ? {
               ...previous,
+              layoutVersion: removed.layoutVersion,
               endpoints: previous.endpoints.filter(
                 (item) => item.id !== selectedEndpointId,
               ),
@@ -293,74 +331,52 @@ export function useProjectPage() {
     }
   }, [project, selectedEndpointId]);
 
+  const applyEndpoint = useCallback((updated: Endpoint) => {
+    if (updated.projectId && updated.projectId !== routeId.current) return;
+    setProject((previous) =>
+      previous && (!updated.projectId || previous.id === updated.projectId)
+        ? {
+            ...previous,
+            layoutVersion:
+              updated.projectLayoutVersion ?? previous.layoutVersion,
+            endpoints: previous.endpoints.some((e) => e.id === updated.id)
+              ? previous.endpoints.map((e) =>
+                  e.id === updated.id ? updated : e,
+                )
+              : [...previous.endpoints, updated],
+          }
+        : previous,
+    );
+  }, []);
   const handleSaveEndpoint = useCallback(
-    async (data: Partial<Endpoint>) => {
-      if (!project || !selectedEndpointId) return false;
+    async (
+      data: Partial<Endpoint>,
+      version: number,
+      section: DocumentSection,
+    ) => {
+      if (!project || !selectedEndpointId) throw new Error("请先选择接口");
       setSaveError(null);
-      const endpointUrl = `/api/endpoints/${selectedEndpointId}`;
-      try {
-        let patch: Partial<Endpoint>;
-        if (data.parameters !== undefined) {
-          patch = {
-            parameters: await apiFetch<Endpoint["parameters"]>(
-              `${endpointUrl}/params`,
-              {
-                method: "POST",
-                body: JSON.stringify({ params: data.parameters }),
-              },
-            ),
-          };
-        } else if (data.requestBody) {
-          patch = {
-            requestBody: await apiFetch<Endpoint["requestBody"]>(
-              `${endpointUrl}/body`,
-              {
-                method: "POST",
-                body: JSON.stringify(data.requestBody),
-              },
-            ),
-          };
-        } else if (data.responses !== undefined) {
-          patch = {
-            responses: await apiFetch<Endpoint["responses"]>(
-              `${endpointUrl}/responses`,
-              {
-                method: "POST",
-                body: JSON.stringify({ responses: data.responses }),
-              },
-            ),
-          };
-        } else {
-          patch = await apiFetch<Endpoint>(endpointUrl, {
-            method: "PUT",
-            body: JSON.stringify(
-              Object.fromEntries(
-                Object.entries(data).filter(([, value]) => value !== undefined),
-              ),
-            ),
-          });
-        }
-        setProject((previous) =>
-          previous?.id === project.id
-            ? {
-                ...previous,
-                endpoints: previous.endpoints.map((endpoint) =>
-                  endpoint.id === selectedEndpointId
-                    ? { ...endpoint, ...patch }
-                    : endpoint,
-                ),
-              }
-            : previous,
-        );
-        return true;
-      } catch (error) {
-        setSaveError(
-          error instanceof Error ? error.message : "网络错误，请稍后重试",
-        );
-        return false;
-      }
+      const suffix = section === "basic" ? "" : `/${section}`;
+      const updated = await apiFetch<Endpoint>(
+        `/api/endpoints/${selectedEndpointId}${suffix}`,
+        {
+          method: section === "basic" ? "PUT" : "POST",
+          body: JSON.stringify({ ...data, version }),
+        },
+      );
+      applyEndpoint(updated);
+      return updated;
     },
-    [project, selectedEndpointId],
+    [project, selectedEndpointId, applyEndpoint],
+  );
+  const handleDocumentRestored = useCallback(
+    async (updated: Endpoint) => {
+      if (updated.projectId && updated.projectId !== routeId.current) return;
+      applyEndpoint(updated);
+      setSelectedEndpointId(updated.id);
+      await fetchProject();
+    },
+    [applyEndpoint, fetchProject],
   );
 
   const handleSaveSettings = useCallback(
@@ -405,6 +421,7 @@ export function useProjectPage() {
     handleRenameFolder,
     handleCreateEndpoint,
     handleSaveEndpoint,
+    handleDocumentRestored,
     handleCopyEndpoint,
     handleDeleteEndpoint,
     handleSaveSettings,

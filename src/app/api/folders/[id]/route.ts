@@ -1,180 +1,44 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
-import { canEditContent } from "@/lib/permissions";
-import { type ApiResponse } from "@/lib/utils";
-
+import { documentActor } from "@/lib/documents/routes";
+import { changeLayout } from "@/lib/documents/layout";
+import {
+  DocumentError,
+  documentSuccess,
+  documentFailure,
+  documentBody,
+} from "@/lib/documents/http";
+async function write(
+  request: Request,
+  id: string,
+  action: "update" | "delete",
+) {
+  try {
+    const actor = await documentActor();
+    const folder = await prisma.folder.findUnique({ where: { id } });
+    if (!folder) throw new DocumentError("目录不存在", 404);
+    await documentActor(undefined, folder.projectId);
+    return documentSuccess(
+      await changeLayout(
+        folder.projectId,
+        actor,
+        await documentBody(request),
+        action,
+        id,
+      ),
+    );
+  } catch (error) {
+    return documentFailure(error);
+  }
+}
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<ApiResponse>> {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 },
-      );
-    }
-
-    const { id } = await params;
-
-    const folder = await prisma.folder.findUnique({
-      where: { id },
-      include: { project: true },
-    });
-
-    if (!folder) {
-      return NextResponse.json(
-        { success: false, error: "Folder not found" },
-        { status: 404 },
-      );
-    }
-
-    const member = await prisma.organizationMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: session.user.id,
-          organizationId: folder.project.organizationId,
-        },
-      },
-    });
-
-    if (!canEditContent(member?.role)) {
-      return NextResponse.json(
-        { success: false, error: "Forbidden" },
-        { status: 403 },
-      );
-    }
-
-    const body = await request.json();
-    const { name, order, parentId } = body;
-    const normalizedName =
-      typeof name === "string" ? name.trim() : undefined;
-
-    if (name !== undefined && !normalizedName) {
-      return NextResponse.json(
-        { success: false, error: "Name is required" },
-        { status: 400 },
-      );
-    }
-
-    if (parentId === id) {
-      return NextResponse.json(
-        { success: false, error: "A folder cannot be its own parent" },
-        { status: 400 },
-      );
-    }
-
-    if (parentId) {
-      const parentFolder = await prisma.folder.findFirst({
-        where: { id: parentId, projectId: folder.projectId },
-        select: { id: true },
-      });
-
-      if (!parentFolder) {
-        return NextResponse.json(
-          { success: false, error: "Invalid parent folder" },
-          { status: 400 },
-        );
-      }
-      const parents = await prisma.folder.findMany({ where: { projectId: folder.projectId }, select: { id: true, parentId: true } });
-      const seen = new Set<string>(); let ancestor: string | null = parentId;
-      while (ancestor) {
-        if (ancestor === id || seen.has(ancestor)) return NextResponse.json({ success: false, error: "A folder cannot contain itself" }, { status: 400 });
-        seen.add(ancestor); ancestor = parents.find((candidate) => candidate.id === ancestor)?.parentId ?? null;
-      }
-
-    }
-
-    if (normalizedName !== undefined) {
-      const existingFolders = await prisma.folder.findMany({
-        where: { projectId: folder.projectId, NOT: { id } },
-        select: { name: true },
-      });
-
-      if (
-        existingFolders.some(
-          (existingFolder) =>
-            existingFolder.name.trim().toLowerCase() ===
-            normalizedName.toLowerCase(),
-        )
-      ) {
-        return NextResponse.json(
-          { success: false, error: "Folder name already exists" },
-          { status: 409 },
-        );
-      }
-    }
-
-    const updated = await prisma.folder.update({
-      where: { id },
-      data: {
-        ...(normalizedName !== undefined && { name: normalizedName }),
-        ...(order !== undefined && { order }),
-        ...(parentId !== undefined && { parentId }),
-      },
-    });
-
-    return NextResponse.json({ success: true, data: updated });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to update folder" },
-      { status: 500 },
-    );
-  }
+) {
+  return write(request, (await params).id, "update");
 }
-
 export async function DELETE(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
-): Promise<NextResponse<ApiResponse>> {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized" },
-        { status: 401 },
-      );
-    }
-
-    const { id } = await params;
-
-    const folder = await prisma.folder.findUnique({
-      where: { id },
-      include: { project: true },
-    });
-
-    if (!folder) {
-      return NextResponse.json(
-        { success: false, error: "Folder not found" },
-        { status: 404 },
-      );
-    }
-
-    const member = await prisma.organizationMember.findUnique({
-      where: {
-        userId_organizationId: {
-          userId: session.user.id,
-          organizationId: folder.project.organizationId,
-        },
-      },
-    });
-
-    if (!canEditContent(member?.role)) {
-      return NextResponse.json(
-        { success: false, error: "Forbidden" },
-        { status: 403 },
-      );
-    }
-
-    await prisma.folder.delete({ where: { id } });
-
-    return NextResponse.json({ success: true, data: { id } });
-  } catch {
-    return NextResponse.json(
-      { success: false, error: "Failed to delete folder" },
-      { status: 500 },
-    );
-  }
+) {
+  return write(request, (await params).id, "delete");
 }

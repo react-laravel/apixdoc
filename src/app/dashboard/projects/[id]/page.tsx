@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -13,6 +14,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EndpointSidebar } from "@/components/endpoint-sidebar";
 import { DocumentationView } from "@/components/documentation/documentation-view";
+import { ProjectRecycleBin } from "@/components/project-recycle-bin";
 import { ProjectTransfer } from "@/components/project-transfer";
 import { EndpointDetail } from "@/components/endpoint-detail";
 import { ProjectSettings } from "@/components/project-settings";
@@ -22,6 +24,11 @@ import { useProjectPage } from "@/hooks/useProjectPage";
 import { cn } from "@/lib/utils";
 
 export default function ProjectPage() {
+  const params = useParams<{ id: string }>();
+  return <ProjectWorkspace key={params.id} />;
+}
+
+function ProjectWorkspace() {
   const {
     project,
     loading,
@@ -39,11 +46,18 @@ export default function ProjectPage() {
     handleRenameFolder,
     handleCreateEndpoint,
     handleSaveEndpoint,
+    handleDocumentRestored,
     handleCopyEndpoint,
     handleDeleteEndpoint,
     handleSaveSettings,
   } = useProjectPage();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!restoreNotice) return;
+    const timer = window.setTimeout(() => setRestoreNotice(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [restoreNotice]);
   const [folderDialogOpen, setFolderDialogOpen] = useState(false);
   const [endpointDialogOpen, setEndpointDialogOpen] = useState(false);
   const [endpointFolderId, setEndpointFolderId] = useState<string | null>(null);
@@ -118,39 +132,69 @@ export default function ProjectPage() {
             {project.baseUrl || "尚未配置基础 URL"}
           </p>
         </div>
-        <ProjectTransfer
-          project={project}
-          beforeImport={canLeave}
-          onReload={async () => {
-            hasDraft.current = false;
-            handleSelectEndpoint(null);
-            await fetchProject();
-          }}
-        />
-        <Link
-          href={`/docs/${project.id}`}
-          target="_blank"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
+        <div
+          role="group"
+          aria-label="项目操作"
+          className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0"
         >
-          文档预览
-        </Link>
-        {project.permissions?.canConfigure !== false && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 gap-2"
-            onClick={() => {
-              setSaveError(null);
-              setSettingsOpen(true);
+          <ProjectRecycleBin
+            projectId={project.id}
+            beforeRestore={canLeave}
+            onRestored={(updated) => {
+              setRestoreNotice(updated.restoreNotice || "接口已恢复");
+              hasDraft.current = false;
+              handleDocumentRestored(updated);
             }}
+          />
+          <ProjectTransfer
+            project={project}
+            beforeImport={canLeave}
+            onReload={async () => {
+              hasDraft.current = false;
+              handleSelectEndpoint(null);
+              await fetchProject();
+            }}
+          />
+          <Link
+            href={`/docs/${project.id}`}
+            target="_blank"
+            className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            <Settings className="size-4" />
-            <span className="hidden sm:inline">项目设置</span>
-            <span className="sm:hidden">设置</span>
-          </Button>
-        )}
+            文档预览
+          </Link>
+          {project.permissions?.canConfigure !== false && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-2"
+              onClick={() => {
+                setSaveError(null);
+                setSettingsOpen(true);
+              }}
+            >
+              <Settings className="size-4" />
+              <span className="hidden sm:inline">项目设置</span>
+              <span className="sm:hidden">设置</span>
+            </Button>
+          )}
+        </div>
       </div>
 
+      {restoreNotice && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300"
+        >
+          <span className="flex-1">{restoreNotice}</span>
+          <button
+            type="button"
+            aria-label="关闭恢复提示"
+            onClick={() => setRestoreNotice(null)}
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
       {(saveError || loadError) && !settingsOpen && (
         <div
           role="alert"
@@ -222,6 +266,11 @@ export default function ProjectPage() {
                 globalHeaders={project.globalHeaders ?? []}
                 globalParams={project.globalParams ?? []}
                 onSave={handleSaveEndpoint}
+                onRestored={(updated) =>
+                  handleDocumentRestored(
+                    updated as import("@/lib/types").Endpoint,
+                  )
+                }
                 actionBusy={endpointAction}
                 onCopy={async () => {
                   if (actionRef.current || !canLeave()) return;

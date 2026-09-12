@@ -1,11 +1,7 @@
 import { documentActor } from "@/lib/documents/routes";
-import { updateDocument } from "@/lib/documents/service";
-import {
-  documentSuccess,
-  documentFailure,
-  documentBody,
-} from "@/lib/documents/http";
-export async function POST(
+import { readDocumentHistory } from "@/lib/documents/service";
+import { documentSuccess, documentFailure } from "@/lib/documents/http";
+export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -13,7 +9,11 @@ export async function POST(
     const { id } = await params;
     const actor = await documentActor(id);
     return documentSuccess(
-      await updateDocument(id, actor, "headers", await documentBody(request)),
+      await readDocumentHistory(
+        id,
+        actor,
+        Number(new URL(request.url).searchParams.get("before")) || undefined,
+      ),
     );
   } catch (error) {
     return documentFailure(error);

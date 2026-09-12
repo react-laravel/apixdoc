@@ -48,6 +48,7 @@ export async function GET(
       include: {
         folders: true,
         endpoints: {
+          where: { deletedAt: null },
           orderBy: { order: "asc" },
           include: {
             parameters: true,
@@ -56,7 +57,7 @@ export async function GET(
             responses: true,
           },
         },
-        specificationImports: true,
+        specificationImports: { where: { active: true } },
         globalHeaders: true,
         globalParams: true,
         environments: true,

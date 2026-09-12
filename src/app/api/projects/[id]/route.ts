@@ -1,3 +1,4 @@
+import { documentInclude } from "@/lib/documents/service";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -33,12 +34,7 @@ export async function GET(
       );
     }
 
-    const endpointInclude = {
-      parameters: true,
-      headers: true,
-      requestBody: true,
-      responses: true,
-    };
+    const endpointInclude = documentInclude;
 
     const fullProject = await prisma.project.findUnique({
       where: { id },
@@ -47,18 +43,18 @@ export async function GET(
           orderBy: { order: "asc" },
           include: {
             endpoints: {
-              where: { projectId: id },
+              where: { projectId: id, deletedAt: null },
               orderBy: { order: "asc" },
               include: endpointInclude,
             },
           },
         },
         endpoints: {
-          where: { folderId: null },
+          where: { folderId: null, deletedAt: null },
           orderBy: { order: "asc" },
           include: endpointInclude,
         },
-        specificationImports: true,
+        specificationImports: { where: { active: true } },
         globalHeaders: true,
         globalParams: true,
         environments: true,

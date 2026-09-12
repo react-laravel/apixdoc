@@ -13,7 +13,7 @@ export function collectProjectEndpoints(
     }
   };
   visit(project.folders);
-  return [...map.values()];
+  return [...map.values()].filter((endpoint) => !endpoint.deletedAt);
 }
 export function folderPath(
   folderId: string | null,
