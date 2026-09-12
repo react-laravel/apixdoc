@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CreateFolderDialog } from "@/components/create-folder-dialog";
 
@@ -102,7 +102,7 @@ describe("CreateFolderDialog", () => {
     let resolveCreate: (v: string | null) => void;
     const onCreate = vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<string | null>((resolve) => {
           resolveCreate = resolve;
         }),
     );
@@ -125,7 +125,7 @@ describe("CreateFolderDialog", () => {
     let resolveCreate: (v: string | null) => void;
     const onCreate = vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<string | null>((resolve) => {
           resolveCreate = resolve;
         }),
     );

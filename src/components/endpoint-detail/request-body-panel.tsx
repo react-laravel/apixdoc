@@ -18,6 +18,7 @@ interface RequestBodyPanelProps {
   onSchemaChange: (v: string) => void;
   onExampleChange: (v: string) => void;
   onSave: () => void;
+  saving?: boolean;
   duplicateFields: string[];
 }
 
@@ -29,6 +30,7 @@ export function RequestBodyPanel({
   onSchemaChange,
   onExampleChange,
   onSave,
+  saving = false,
   duplicateFields,
 }: RequestBodyPanelProps) {
   return (
@@ -44,7 +46,9 @@ export function RequestBodyPanel({
             <SelectItem value="application/x-www-form-urlencoded">
               application/x-www-form-urlencoded
             </SelectItem>
-            <SelectItem value="multipart/form-data">multipart/form-data</SelectItem>
+            <SelectItem value="multipart/form-data">
+              multipart/form-data
+            </SelectItem>
             <SelectItem value="text/plain">text/plain</SelectItem>
           </SelectContent>
         </Select>
@@ -56,7 +60,9 @@ export function RequestBodyPanel({
           {duplicateFields.map((f, idx) => (
             <span key={f}>
               {idx > 0 && "、"}
-              <code className="mx-0.5 rounded bg-amber-100 px-1 dark:bg-amber-900">{f}</code>
+              <code className="mx-0.5 rounded bg-amber-100 px-1 dark:bg-amber-900">
+                {f}
+              </code>
             </span>
           ))}
         </div>
@@ -82,7 +88,9 @@ export function RequestBodyPanel({
           placeholder='{"key": "value"}'
         />
       </div>
-      <Button onClick={onSave}>保存</Button>
+      <Button disabled={saving} onClick={onSave}>
+        {saving ? "保存中…" : "保存"}
+      </Button>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-fetch";
 import {
@@ -11,6 +11,28 @@ import {
   type EndpointUpdate,
 } from "@/lib/types";
 
+// Keep one endpoint collection in client state, regardless of its folder depth.
+function normalizeProject(project: Project): Project {
+  const endpoints = new Map(
+    project.endpoints.map((endpoint) => [endpoint.id, endpoint]),
+  );
+  const folders: Folder[] = [];
+  const visit = (items: Folder[], parentId: string | null = null) => {
+    for (const folder of items) {
+      const {
+        endpoints: children = [],
+        children: nested = [],
+        ...rest
+      } = folder;
+      folders.push({ ...rest, parentId: rest.parentId ?? parentId });
+      children.forEach((endpoint) => endpoints.set(endpoint.id, endpoint));
+      visit(nested, folder.id);
+    }
+  };
+  visit(project.folders);
+  return { ...project, folders, endpoints: [...endpoints.values()] };
+}
+
 export function useProjectPage() {
   const params = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
@@ -19,45 +41,48 @@ export function useProjectPage() {
     null,
   );
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestVersion = useRef(0);
 
   const fetchProject = useCallback(async () => {
+    const version = ++requestVersion.current;
+    setLoadError(null);
     try {
       const data = await apiFetch<Project>(`/api/projects/${params.id}`);
-      setProject(data);
-    } catch {
-      // network error — will retry on next navigation
+      if (version !== requestVersion.current) return;
+      setProject(data ? normalizeProject(data) : null);
+    } catch (error) {
+      if (version !== requestVersion.current) return;
+      setLoadError(
+        error instanceof Error ? error.message : "加载项目失败，请重试",
+      );
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [params.id]);
 
   useEffect(() => {
+    setLoading(true);
+    setProject(null);
+    setSelectedEndpointId(null);
+    setSaveError(null);
     fetchProject();
+    return () => {
+      requestVersion.current += 1;
+    };
   }, [fetchProject]);
 
-  // Memoize to avoid re-creating arrays on every render
-  const allEndpoints = useMemo(() => {
-    if (!project) return [];
-    const collect = (folders: Folder[]): Endpoint[] =>
-      folders.flatMap((f) => [
-        ...(f.endpoints ?? []),
-        ...collect(f.children ?? []),
-      ]);
-    return [...project.endpoints, ...collect(project.folders)];
-  }, [project]);
+  const allEndpoints = useMemo(() => project?.endpoints ?? [], [project]);
 
   const selectedEndpoint = useMemo(
     () => allEndpoints.find((ep) => ep.id === selectedEndpointId) ?? null,
     [allEndpoints, selectedEndpointId],
   );
 
-  const handleSelectEndpoint = useCallback(
-    (id: string | null) => {
-      setSaveError(null);
-      setSelectedEndpointId(id);
-    },
-    [],
-  );
+  const handleSelectEndpoint = useCallback((id: string | null) => {
+    setSaveError(null);
+    setSelectedEndpointId(id);
+  }, []);
 
   const handleReorder = useCallback(
     async (
@@ -66,6 +91,7 @@ export function useProjectPage() {
     ) => {
       if (!project) return;
 
+      setSaveError(null);
       try {
         await apiFetch(`/api/projects/${project.id}/reorder`, {
           method: "POST",
@@ -74,8 +100,10 @@ export function useProjectPage() {
             endpoints: endpointUpdates.length > 0 ? endpointUpdates : undefined,
           }),
         });
-      } catch {
-        // network error — refetch to get server state
+      } catch (error) {
+        setSaveError(
+          error instanceof Error ? error.message : "排序失败，请重试",
+        );
       }
       await fetchProject();
     },
@@ -90,7 +118,8 @@ export function useProjectPage() {
       if (!normalizedName) return null;
 
       const exists = project.folders.some(
-        (folder) => folder.name.trim().toLowerCase() === normalizedName.toLowerCase(),
+        (folder) =>
+          folder.name.trim().toLowerCase() === normalizedName.toLowerCase(),
       );
       if (exists) return "文件夹名称不能重复";
 
@@ -99,7 +128,10 @@ export function useProjectPage() {
           "/api/folders",
           {
             method: "POST",
-            body: JSON.stringify({ name: normalizedName, projectId: project.id }),
+            body: JSON.stringify({
+              name: normalizedName,
+              projectId: project.id,
+            }),
           },
         );
         setProject((prev) =>
@@ -122,48 +154,32 @@ export function useProjectPage() {
     async (folderId: string) => {
       if (!project) return;
 
-      if (!window.confirm("确定要删除此文件夹吗？子文件夹也会被删除。")) {
+      if (
+        !window.confirm(
+          "确定要删除此文件夹及子文件夹吗？其中的接口会移至未分组。",
+        )
+      ) {
         return false;
       }
 
+      setSaveError(null);
       try {
         await apiFetch(`/api/folders/${folderId}`, { method: "DELETE" });
-      } catch {
-        // network error — refetch to recover
-      }
-
-      // Snapshot the endpoint list before refetch
-      const endpointsBefore = allEndpoints;
-      if (selectedEndpointId) {
-        const deletedFolderIds = new Set<string>();
-        const collectDeletedFolderIds = (parentId: string) => {
-          deletedFolderIds.add(parentId);
-          project.folders
-            .filter((folder) => folder.parentId === parentId)
-            .forEach((folder) => collectDeletedFolderIds(folder.id));
-        };
-        collectDeletedFolderIds(folderId);
-
-        const selectedEndpoint = endpointsBefore.find(
-          (ep) => ep.id === selectedEndpointId,
-        );
-        if (
-          selectedEndpoint?.folderId &&
-          deletedFolderIds.has(selectedEndpoint.folderId)
-        ) {
-          setSelectedEndpointId(null);
-        }
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "删除文件夹失败");
+        return false;
       }
 
       await fetchProject();
       return true;
     },
-    [project, allEndpoints, selectedEndpointId, fetchProject],
+    [project, fetchProject],
   );
 
   const handleRenameFolder = useCallback(
     async (folderId: string, newName: string) => {
       if (!project) return;
+      setSaveError(null);
       try {
         await apiFetch(`/api/folders/${folderId}`, {
           method: "PUT",
@@ -179,8 +195,8 @@ export function useProjectPage() {
               }
             : prev,
         );
-      } catch {
-        // network error — no dedicated UI for rename failures
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : "重命名失败");
       }
     },
     [project],
@@ -213,6 +229,7 @@ export function useProjectPage() {
         setProject((prev) =>
           prev ? { ...prev, endpoints: [...prev.endpoints, created] } : prev,
         );
+        setSelectedEndpointId(created.id);
         return { error: undefined };
       } catch (err) {
         return { error: err instanceof Error ? err.message : "创建接口失败" };
@@ -223,107 +240,69 @@ export function useProjectPage() {
 
   const handleSaveEndpoint = useCallback(
     async (data: Partial<Endpoint>) => {
-      if (!project || !selectedEndpointId) return;
-
+      if (!project || !selectedEndpointId) return false;
       setSaveError(null);
-
+      const endpointUrl = `/api/endpoints/${selectedEndpointId}`;
       try {
-        if (data.parameters) {
-          const updated = await apiFetch<Endpoint["parameters"]>(
-            `/api/endpoints/${selectedEndpointId}/params`,
-            {
-              method: "POST",
-              body: JSON.stringify({ params: data.parameters }),
-            },
-          );
-          setProject((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  endpoints: prev.endpoints.map((ep) =>
-                    ep.id === selectedEndpointId
-                      ? { ...ep, parameters: updated }
-                      : ep,
-                  ),
-                }
-              : prev,
-          );
-          return;
-        }
-
-        if (data.requestBody) {
-          const updated = await apiFetch<Endpoint["requestBody"]>(
-            `/api/endpoints/${selectedEndpointId}/body`,
-            {
-              method: "POST",
-              body: JSON.stringify(data.requestBody),
-            },
-          );
-          setProject((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  endpoints: prev.endpoints.map((ep) =>
-                    ep.id === selectedEndpointId
-                      ? { ...ep, requestBody: updated }
-                      : ep,
-                  ),
-                }
-              : prev,
-          );
-          return;
-        }
-
-        if (data.responses) {
-          const updated = await apiFetch<Endpoint["responses"]>(
-            `/api/endpoints/${selectedEndpointId}/responses`,
-            {
-              method: "POST",
-              body: JSON.stringify({ responses: data.responses }),
-            },
-          );
-          setProject((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  endpoints: prev.endpoints.map((ep) =>
-                    ep.id === selectedEndpointId
-                      ? { ...ep, responses: updated }
-                      : ep,
-                  ),
-                }
-              : prev,
-          );
-          return;
-        }
-
-        // Basic info — only send defined fields
-        const payload = Object.fromEntries(
-          Object.entries(data).filter(([, v]) => v !== undefined),
-        );
-        const updated = await apiFetch<Endpoint>(
-          `/api/endpoints/${selectedEndpointId}`,
-          {
+        let patch: Partial<Endpoint>;
+        if (data.parameters !== undefined) {
+          patch = {
+            parameters: await apiFetch<Endpoint["parameters"]>(
+              `${endpointUrl}/params`,
+              {
+                method: "POST",
+                body: JSON.stringify({ params: data.parameters }),
+              },
+            ),
+          };
+        } else if (data.requestBody) {
+          patch = {
+            requestBody: await apiFetch<Endpoint["requestBody"]>(
+              `${endpointUrl}/body`,
+              {
+                method: "POST",
+                body: JSON.stringify(data.requestBody),
+              },
+            ),
+          };
+        } else if (data.responses !== undefined) {
+          patch = {
+            responses: await apiFetch<Endpoint["responses"]>(
+              `${endpointUrl}/responses`,
+              {
+                method: "POST",
+                body: JSON.stringify({ responses: data.responses }),
+              },
+            ),
+          };
+        } else {
+          patch = await apiFetch<Endpoint>(endpointUrl, {
             method: "PUT",
-            body: JSON.stringify(payload),
-          },
-        );
-        setProject((prev) =>
-          prev
+            body: JSON.stringify(
+              Object.fromEntries(
+                Object.entries(data).filter(([, value]) => value !== undefined),
+              ),
+            ),
+          });
+        }
+        setProject((previous) =>
+          previous?.id === project.id
             ? {
-                ...prev,
-                endpoints: prev.endpoints.map((ep) =>
-                  ep.id === selectedEndpointId
-                    ? { ...ep, ...updated }
-                    : ep,
+                ...previous,
+                endpoints: previous.endpoints.map((endpoint) =>
+                  endpoint.id === selectedEndpointId
+                    ? { ...endpoint, ...patch }
+                    : endpoint,
                 ),
               }
-            : prev,
+            : previous,
         );
-      } catch (err) {
+        return true;
+      } catch (error) {
         setSaveError(
-          err instanceof Error ? err.message : "网络错误，请稍后重试",
+          error instanceof Error ? error.message : "网络错误，请稍后重试",
         );
+        return false;
       }
     },
     [project, selectedEndpointId],
@@ -331,8 +310,9 @@ export function useProjectPage() {
 
   const handleSaveSettings = useCallback(
     async (data: Partial<Project>) => {
-      if (!project) return;
+      if (!project) return false;
 
+      setSaveError(null);
       try {
         const updated = await apiFetch<Partial<Project>>(
           `/api/projects/${project.id}`,
@@ -342,8 +322,12 @@ export function useProjectPage() {
           },
         );
         setProject((prev) => (prev ? { ...prev, ...updated } : prev));
-      } catch {
-        // network error
+        return true;
+      } catch (error) {
+        setSaveError(
+          error instanceof Error ? error.message : "保存项目设置失败",
+        );
+        return false;
       }
     },
     [project],
@@ -352,6 +336,7 @@ export function useProjectPage() {
   return {
     project,
     loading,
+    loadError,
     selectedEndpointId,
     selectedEndpoint,
     allEndpoints,

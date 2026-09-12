@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { useProjectPage } from "@/hooks/useProjectPage";
 
 const mockProject = {
@@ -507,7 +507,7 @@ describe("useProjectPage", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
 
     await act(async () => {
-      await result.current.handleReorder([{ id: "f1", order: 0 }], [{ id: "ep-1", order: 0 }]);
+      await result.current.handleReorder([{ id: "f1", order: 0 }], [{ id: "ep-1", order: 0, folderId: null }]);
     });
 
     await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
@@ -587,13 +587,77 @@ describe("useProjectPage", () => {
       await result.current.handleDeleteFolder("f1");
     });
 
-    expect(confirmMock).toHaveBeenCalledWith("确定要删除此文件夹吗？子文件夹也会被删除。");
+    expect(confirmMock).toHaveBeenCalledWith("确定要删除此文件夹及子文件夹吗？其中的接口会移至未分组。");
 
     // Verify DELETE request was made
     const fetchCalls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
     const deleteCall = fetchCalls.find(
-      (c: unknown[]) => c[0] === "/api/folders/f1" && c[1]?.method === "DELETE",
+      (c: unknown[]) => c[0] === "/api/folders/f1" && (c[1] as RequestInit | undefined)?.method === "DELETE",
     );
     expect(deleteCall).toBeDefined();
+  });
+});
+
+describe("project editing regressions", () => {
+  function mockFetch(project: typeof mockProject | Record<string, unknown>, update: unknown) {
+    vi.stubGlobal("fetch", vi.fn((_url: string, options?: RequestInit) => Promise.resolve({
+      ok: true, json: async () => ({ success: true, data: options?.method ? update : project }),
+    } as Response)));
+  }
+
+  it("keeps folder endpoint edits after switching away and back", async () => {
+    const endpoint = { ...mockProject.endpoints[0], folderId: "child" };
+    mockFetch({ ...mockProject, endpoints: [], folders: [{ id: "parent", name: "Parent", children: [{ id: "child", name: "Child", endpoints: [endpoint] }] }] }, { ...endpoint, name: "Saved name" });
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint(endpoint.id));
+    await act(async () => { expect(await result.current.handleSaveEndpoint({ name: "Saved name" })).toBe(true); });
+    act(() => result.current.handleSelectEndpoint(null));
+    act(() => result.current.handleSelectEndpoint(endpoint.id));
+    expect(result.current.selectedEndpoint?.name).toBe("Saved name");
+    expect(result.current.allEndpoints).toHaveLength(1);
+    expect(result.current.project?.folders.find((f) => f.id === "child")?.parentId).toBe("parent");
+  });
+
+  it("updates parameters of a folder endpoint, including removing every parameter", async () => {
+    const endpoint = { ...mockProject.endpoints[0], folderId: "folder", parameters: [{ name: "id", type: "string", required: true, location: "query", description: "", example: "1" }] };
+    mockFetch({ ...mockProject, endpoints: [], folders: [{ id: "folder", name: "Folder", endpoints: [endpoint] }] }, []);
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint(endpoint.id));
+    await act(async () => { await result.current.handleSaveEndpoint({ parameters: [] }); });
+    expect(result.current.selectedEndpoint?.parameters).toEqual([]);
+  });
+
+  it("reports a failed delete without clearing the selection or changing data", async () => {
+    mockFetch(mockProject, {});
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint("ep-1"));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("Delete failed"));
+    await act(async () => { expect(await result.current.handleDeleteFolder("f1")).toBe(false); });
+    expect(result.current.selectedEndpointId).toBe("ep-1");
+    expect(result.current.saveError).toBe("Delete failed");
+  });
+
+  it("exposes a load error and recovers on retry", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Offline")));
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loadError).toBe("Offline"));
+    mockFetch(mockProject, {});
+    await act(async () => { await result.current.fetchProject(); });
+    expect(result.current.loadError).toBeNull();
+    expect(result.current.project?.id).toBe(mockProject.id);
+  });
+
+  it("returns failure when settings were not saved", async () => {
+    mockFetch(mockProject, {});
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("Save failed"));
+    await act(async () => { expect(await result.current.handleSaveSettings({ name: "Unsaved" })).toBe(false); });
+    expect(result.current.project?.name).toBe(mockProject.name);
+    expect(result.current.saveError).toBe("Save failed");
   });
 });

@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { type ApiResponse } from "@/lib/utils";
+import { parseProjectSettings } from "@/lib/project-settings";
 
 async function checkProjectAccess(
   projectId: string,
-  userId?: string
+  userId?: string,
 ): Promise<{
   project: Awaited<ReturnType<typeof prisma.project.findUnique>> | null;
   isMember: boolean;
@@ -32,7 +33,7 @@ async function checkProjectAccess(
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
@@ -40,20 +41,20 @@ export async function GET(
 
     const { project, isMember } = await checkProjectAccess(
       id,
-      session?.user?.id
+      session?.user?.id,
     );
 
     if (!project) {
       return NextResponse.json(
         { success: false, error: "Project not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     if (!project.isPublic && !isMember) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -94,21 +95,21 @@ export async function GET(
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch project" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function PUT(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -118,42 +119,48 @@ export async function PUT(
     if (!isMember) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
-    const body = await request.json();
-    const { name, description, baseUrl, isPublic } = body;
+    let data;
+    try {
+      data = parseProjectSettings(await request.json());
+    } catch (error) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "设置格式不正确",
+        },
+        { status: 400 },
+      );
+    }
 
     const project = await prisma.project.update({
       where: { id },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(description !== undefined && { description }),
-        ...(baseUrl !== undefined && { baseUrl }),
-        ...(isPublic !== undefined && { isPublic }),
-      },
+      data,
+      include: { environments: true, globalHeaders: true, globalParams: true },
     });
 
     return NextResponse.json({ success: true, data: project });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to update project" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function DELETE(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -163,7 +170,7 @@ export async function DELETE(
     if (!isMember) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -173,7 +180,7 @@ export async function DELETE(
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to delete project" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

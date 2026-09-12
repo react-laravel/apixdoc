@@ -14,9 +14,14 @@ import type { EndpointParam } from "@/lib/types";
 interface ParamsPanelProps {
   params: EndpointParam[];
   onAdd: () => void;
-  onUpdate: (index: number, field: keyof EndpointParam, value: string | boolean) => void;
+  onUpdate: (
+    index: number,
+    field: keyof EndpointParam,
+    value: string | boolean,
+  ) => void;
   onRemove: (index: number) => void;
   onSave: () => void;
+  saving?: boolean;
   duplicateFields: string[];
 }
 
@@ -26,12 +31,13 @@ export function ParamsPanel({
   onUpdate,
   onRemove,
   onSave,
+  saving = false,
   duplicateFields,
 }: ParamsPanelProps) {
   return (
     <div className="space-y-4">
       <div className="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900">
               <th className="px-3 py-2 text-left font-medium">名称</th>
@@ -44,6 +50,16 @@ export function ParamsPanel({
             </tr>
           </thead>
           <tbody>
+            {params.length === 0 && (
+              <tr>
+                <td
+                  colSpan={7}
+                  className="px-4 py-10 text-center text-zinc-500"
+                >
+                  暂无请求参数，点击「添加参数」开始配置。
+                </td>
+              </tr>
+            )}
             {params.map((p, i) => (
               <tr
                 key={i}
@@ -132,7 +148,9 @@ export function ParamsPanel({
           {duplicateFields.map((f, idx) => (
             <span key={f}>
               {idx > 0 && "、"}
-              <code className="mx-0.5 rounded bg-amber-100 px-1 dark:bg-amber-900">{f}</code>
+              <code className="mx-0.5 rounded bg-amber-100 px-1 dark:bg-amber-900">
+                {f}
+              </code>
             </span>
           ))}
         </div>
@@ -142,8 +160,8 @@ export function ParamsPanel({
         <Button variant="outline" size="sm" onClick={onAdd}>
           添加参数
         </Button>
-        <Button size="sm" onClick={onSave}>
-          保存
+        <Button size="sm" disabled={saving} onClick={onSave}>
+          {saving ? "保存中…" : "保存"}
         </Button>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CreateEndpointDialog } from "@/components/create-endpoint-dialog";
 
@@ -66,10 +66,10 @@ describe("CreateEndpointDialog", () => {
   });
 
   it("shows submitting state", async () => {
-    let resolveCreate: (v: void) => void;
+    let resolveCreate: (v: { error?: string }) => void;
     const onCreate = vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<{ error?: string }>((resolve) => {
           resolveCreate = resolve;
         }),
     );

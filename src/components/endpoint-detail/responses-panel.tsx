@@ -17,11 +17,16 @@ import type { EndpointResponse, SendRequestResult } from "@/lib/types";
 
 interface ResponsesPanelProps {
   responses: EndpointResponse[];
-  onUpdate: (index: number, field: keyof EndpointResponse, value: string | number) => void;
+  onUpdate: (
+    index: number,
+    field: keyof EndpointResponse,
+    value: string | number,
+  ) => void;
   onRemove: (index: number) => void;
   onAdd: () => void;
   onAddWithStatus: (statusCode: number) => void;
   onSave: () => void;
+  saving?: boolean;
   onImportFromTest: (response: SendRequestResult) => void;
   testResponse: SendRequestResult | null;
 }
@@ -33,6 +38,7 @@ export function ResponsesPanel({
   onAdd,
   onAddWithStatus,
   onSave,
+  saving = false,
   onImportFromTest,
   testResponse,
 }: ResponsesPanelProps) {
@@ -72,7 +78,9 @@ export function ResponsesPanel({
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium">Content-Type</label>
+              <label className="mb-1 block text-xs font-medium">
+                Content-Type
+              </label>
               <Select
                 value={r.contentType}
                 onValueChange={(v) => onUpdate(i, "contentType", v)}
@@ -81,7 +89,9 @@ export function ResponsesPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="application/json">application/json</SelectItem>
+                  <SelectItem value="application/json">
+                    application/json
+                  </SelectItem>
                   <SelectItem value="text/plain">text/plain</SelectItem>
                   <SelectItem value="text/html">text/html</SelectItem>
                 </SelectContent>
@@ -126,15 +136,22 @@ export function ResponsesPanel({
           <Button variant="outline" size="sm" onClick={onAdd}>
             添加响应
           </Button>
-          <Button size="sm" onClick={onSave}>
-            保存
+          <Button size="sm" disabled={saving} onClick={onSave}>
+            {saving ? "保存中…" : "保存"}
           </Button>
         </div>
       </div>
 
       {testResponse && (
-        <Button variant="outline" size="sm" onClick={() => onImportFromTest(testResponse)}>
-          <Badge variant={testResponse.status < 300 ? "default" : "secondary"} className="mr-2 text-[10px]">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onImportFromTest(testResponse)}
+        >
+          <Badge
+            variant={testResponse.status < 300 ? "default" : "secondary"}
+            className="mr-2 text-[10px]"
+          >
             {testResponse.status}
           </Badge>
           将测试结果添加到响应

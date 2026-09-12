@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useMemo } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MethodBadge } from "@/components/method-badge";
@@ -39,10 +40,7 @@ interface EndpointSidebarProps {
   onCreateEndpoint: (folderId: string | null) => void;
   onDeleteFolder: (folderId: string) => void;
   onRenameFolder: (folderId: string, newName: string) => void;
-  onReorder: (
-    folders: FolderUpdate[],
-    endpoints: EndpointUpdate[],
-  ) => void;
+  onReorder: (folders: FolderUpdate[], endpoints: EndpointUpdate[]) => void;
 }
 
 export function EndpointSidebar({
@@ -63,6 +61,7 @@ export function EndpointSidebar({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameRequested = useRef<FolderItem | null>(null);
 
   // Derived: allCollapsed is computed from collapsed + folders, not stored
   const allCollapsed = useMemo(
@@ -109,11 +108,7 @@ export function EndpointSidebar({
   };
 
   const startRename = (folder: FolderItem) => {
-    setRenamingId(folder.id);
-    setRenameValue(folder.name);
-    requestAnimationFrame(() => {
-      renameInputRef.current?.select();
-    });
+    renameRequested.current = folder;
   };
 
   const confirmRename = () => {
@@ -136,7 +131,9 @@ export function EndpointSidebar({
     [endpoints],
   );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const folderNameById = new Map(folders.map((folder) => [folder.id, folder.name]));
+  const folderNameById = new Map(
+    folders.map((folder) => [folder.id, folder.name]),
+  );
   const searchResults = normalizedSearchQuery
     ? endpoints.filter((endpoint) => {
         const folderName = endpoint.folderId
@@ -220,11 +217,6 @@ export function EndpointSidebar({
         }
       });
     }
-    const currentDrag = dragItemRef.current;
-    const currentDrop = dropTargetRef.current;
-    if (currentDrag && currentDrop) {
-      applyDrop(currentDrag, currentDrop);
-    }
     dragItemRef.current = null;
     setDragItem(null);
     setDropTarget(null);
@@ -246,9 +238,15 @@ export function EndpointSidebar({
     const drag = dragItemRef.current;
     if (!drag) return;
     // Can't drop on self
-    if (drag.type === "folder" && drag.id === folderId) return;
+    if (drag.type === "folder" && drag.id === folderId) {
+      setDropTarget(null);
+      return;
+    }
     // Can't drop into own descendant
-    if (drag.type === "folder" && isDescendant(folderId, drag.id)) return;
+    if (drag.type === "folder" && isDescendant(folderId, drag.id)) {
+      setDropTarget(null);
+      return;
+    }
 
     if (drag.type === "endpoint") {
       setDropTarget({ type: "folder", id: folderId, position: "inside" });
@@ -291,7 +289,10 @@ export function EndpointSidebar({
     e.preventDefault();
     e.stopPropagation();
     const drag = dragItemRef.current;
-    if (!drag || drag.type !== "endpoint" || drag.id === epId) return;
+    if (!drag || drag.type !== "endpoint" || drag.id === epId) {
+      setDropTarget(null);
+      return;
+    }
     const pos = getDropPositionHalf(e, e.currentTarget as HTMLElement);
     setDropTarget({ type: "endpoint", id: epId, position: pos });
   };
@@ -452,7 +453,7 @@ export function EndpointSidebar({
         {isBeforeTarget && <div className={cn(dropLineClass, "top-0")} />}
 
         <div
-          draggable
+          draggable={renamingId !== folder.id}
           onDragStart={(e) =>
             handleDragStart(e, { type: "folder", id: folder.id })
           }
@@ -461,7 +462,7 @@ export function EndpointSidebar({
           onDragOver={(e) => handleFolderDragOver(e, folder.id)}
           onDragLeave={(e) => handleFolderDragLeave(e, folder.id)}
           className={cn(
-            "flex w-full items-center gap-1 rounded py-2 text-sm cursor-grab active:cursor-grabbing transition-colors duration-75 sm:py-1.5",
+            "group flex w-full items-center gap-1 rounded-lg py-2 text-sm cursor-grab active:cursor-grabbing transition-colors duration-75 sm:py-1.5",
             "hover:bg-zinc-100 dark:hover:bg-zinc-800",
             isInsideTarget && folderInsideHighlight,
           )}
@@ -470,7 +471,9 @@ export function EndpointSidebar({
           <GripVertical className="h-3 w-3 flex-shrink-0 text-zinc-300 dark:text-zinc-600" />
           <button
             onClick={() => toggleFolder(folder.id)}
-            className="flex-shrink-0"
+            className="flex-shrink-0 rounded p-1"
+            aria-label={`${isCollapsed ? "展开" : "收起"} ${folder.name}`}
+            aria-expanded={!isCollapsed}
           >
             {isCollapsed ? (
               <ChevronRight className="h-3.5 w-3.5 text-zinc-400" />
@@ -481,20 +484,31 @@ export function EndpointSidebar({
           <Folder className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400" />
           {renamingId === folder.id ? (
             <input
+              aria-label="文件夹名称"
+              autoFocus
               ref={renameInputRef}
               type="text"
+              onFocus={(event) => event.currentTarget.select()}
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
               onBlur={confirmRename}
               onKeyDown={(e) => {
-                if (e.key === "Enter") confirmRename();
+                if (e.key === "Enter") e.currentTarget.blur();
                 if (e.key === "Escape") setRenamingId(null);
               }}
               className="flex-1 min-w-0 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-sm dark:border-zinc-600 dark:bg-zinc-800"
               onClick={(e) => e.stopPropagation()}
             />
           ) : (
-            <span className="flex-1 truncate text-left">{folder.name}</span>
+            <button
+              type="button"
+              onClick={() => toggleFolder(folder.id)}
+              aria-expanded={!isCollapsed}
+              className="min-w-0 flex-1 truncate py-1 text-left font-medium"
+              title={folder.name}
+            >
+              {folder.name}
+            </button>
           )}
           <button
             onClick={(e) => {
@@ -506,38 +520,49 @@ export function EndpointSidebar({
           >
             <Plus className="h-3.5 w-3.5 text-zinc-400" />
           </button>
-          <details className="relative">
-            <summary
-              className="flex h-6 w-6 items-center justify-center rounded p-0 hover:bg-zinc-200 dark:hover:bg-zinc-700 [&::-webkit-details-marker]:hidden"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <MoreHorizontal className="h-3.5 w-3.5 text-zinc-400" />
-            </summary>
-            <div className="absolute right-0 top-[calc(100%+4px)] z-20 min-w-[140px] rounded-lg border border-zinc-200 bg-white py-1 shadow-md dark:border-zinc-700 dark:bg-zinc-800">
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  startRename(folder);
-                }}
+                aria-label={`${folder.name} 的更多操作`}
+                className="flex size-7 shrink-0 items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700"
               >
-                <Pencil className="h-3.5 w-3.5 text-zinc-400" />
-                重命名
+                <MoreHorizontal className="size-4 text-zinc-500" />
               </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDeleteFolder(folder.id);
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={4}
+                onCloseAutoFocus={(event) => {
+                  const folder = renameRequested.current;
+                  if (!folder) return;
+                  event.preventDefault();
+                  renameRequested.current = null;
+                  requestAnimationFrame(() => {
+                    setRenamingId(folder.id);
+                    setRenameValue(folder.name);
+                  });
                 }}
+                className="z-50 min-w-36 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
               >
-                <Trash2 className="h-3.5 w-3.5" />
-                删除
-              </button>
-            </div>
-          </details>
+                <DropdownMenu.Item
+                  onSelect={() => startRename(folder)}
+                  className="flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-sm outline-none focus:bg-zinc-100 dark:focus:bg-zinc-800"
+                >
+                  <Pencil className="size-3.5" />
+                  重命名
+                </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  onSelect={() => onDeleteFolder(folder.id)}
+                  className="flex cursor-pointer items-center gap-2 rounded px-3 py-2 text-sm text-red-600 outline-none focus:bg-red-50 dark:text-red-400 dark:focus:bg-red-950"
+                >
+                  <Trash2 className="size-3.5" />
+                  删除
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
         </div>
 
         {!isCollapsed && (
@@ -589,64 +614,84 @@ export function EndpointSidebar({
 
   return (
     <div className="flex h-full flex-col bg-white md:border-r md:border-zinc-200 dark:bg-zinc-900 md:dark:border-zinc-800">
-      <div className="flex items-center gap-2 border-b border-zinc-200 p-2 sm:p-3 dark:border-zinc-800">
+      <div className="space-y-3 border-b border-zinc-200 p-3 dark:border-zinc-800">
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-xs font-semibold text-zinc-500">
+            接口目录{" "}
+            <span className="ml-1 font-normal">{endpoints.length}</span>
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onCreateFolder}
+            className="size-8"
+            aria-label="新建文件夹"
+            title="新建文件夹"
+          >
+            <FolderPlus className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleAllFolders}
+            disabled={!folders.length}
+            className="size-8"
+            aria-label={allCollapsed ? "全部展开" : "全部收缩"}
+            title={allCollapsed ? "全部展开" : "全部收缩"}
+          >
+            {allCollapsed ? (
+              <UnfoldVertical className="size-4" />
+            ) : (
+              <FoldVertical className="size-4" />
+            )}
+          </Button>
+        </div>
         <Button
-          variant="outline"
-          size="icon"
-          onClick={onCreateFolder}
-          className="h-8 w-8 flex-shrink-0"
-          aria-label="新建文件夹"
-          title="新建文件夹"
-        >
-          <FolderPlus className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
           onClick={() => onCreateEndpoint(null)}
-          className="h-8 w-8 flex-shrink-0"
-          aria-label="新建接口"
-          title="新建接口"
+          size="sm"
+          className="w-full gap-2"
         >
-          <FilePlus className="h-3.5 w-3.5" />
+          <FilePlus className="size-4" />
+          新建接口
         </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={toggleAllFolders}
-          className="h-8 w-8 flex-shrink-0"
-          aria-label={allCollapsed ? "全部展开" : "全部收缩"}
-          title={allCollapsed ? "全部展开" : "全部收缩"}
-        >
-          {allCollapsed ? (
-            <UnfoldVertical className="h-3.5 w-3.5" />
-          ) : (
-            <FoldVertical className="h-3.5 w-3.5" />
-          )}
-        </Button>
-        <div className="flex-1 min-w-0 relative">
-          <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+        <div className="relative min-w-0">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜索接口..."
-            className="h-8 pl-7 pr-8 text-xs"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setSearchQuery("");
+            }}
+            aria-label="搜索接口"
+            placeholder="搜索名称、路径或请求方法"
+            className="h-9 bg-zinc-50 pl-8 pr-8 text-xs dark:bg-zinc-950"
           />
           {searchQuery && (
             <button
               type="button"
               onClick={() => setSearchQuery("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
               aria-label="清空搜索"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="size-3.5" />
             </button>
           )}
         </div>
       </div>
 
       <div
-        className="flex flex-1 flex-col overflow-y-auto overscroll-contain p-2"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-2"
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const source = dragItemRef.current;
+          const target = dropTargetRef.current;
+          if (source && target) applyDrop(source, target);
+          dragItemRef.current = null;
+          setDragItem(null);
+          setDropTarget(null);
+          enterCounters.current.clear();
+        }}
         onDragOver={(e) => {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
@@ -654,7 +699,7 @@ export function EndpointSidebar({
       >
         {normalizedSearchQuery ? (
           <div className="space-y-1">
-            <p className="px-2 py-1 text-xs text-zinc-400">
+            <p role="status" className="px-2 py-1 text-xs text-zinc-500">
               找到 {searchResults.length} 个接口
             </p>
             {searchResults.map((ep) => (
@@ -662,7 +707,9 @@ export function EndpointSidebar({
                 key={ep.id}
                 ep={ep}
                 folderName={
-                  ep.folderId ? (folderNameById.get(ep.folderId) ?? "") : "未分组"
+                  ep.folderId
+                    ? (folderNameById.get(ep.folderId) ?? "")
+                    : "未分组"
                 }
                 isSelected={selectedEndpointId === ep.id}
                 onSelect={() => onSelectEndpoint(ep.id)}
@@ -716,33 +763,35 @@ export function EndpointSidebar({
 
         {/* Drop zone: drag here to move to root level */}
         {!normalizedSearchQuery && (
-        <div
-          className={cn(
-            "flex-1 min-h-[48px]",
-            dropTarget?.type === "root" &&
-              "bg-blue-50 dark:bg-blue-950/40 rounded border-2 border-dashed border-blue-300 dark:border-blue-700",
-          )}
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setDropTarget({ type: "root" });
-          }}
-          onDragLeave={(e) => {
-            e.preventDefault();
-            if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-            const current = dropTargetRef.current;
-            if (current?.type === "root") {
-              setDropTarget(null);
-            }
-          }}
-        />
+          <div
+            className={cn(
+              "flex-1 min-h-[48px]",
+              dropTarget?.type === "root" &&
+                "bg-blue-50 dark:bg-blue-950/40 rounded border-2 border-dashed border-blue-300 dark:border-blue-700",
+            )}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (dragItemRef.current) setDropTarget({ type: "root" });
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+              const current = dropTargetRef.current;
+              if (current?.type === "root") {
+                setDropTarget(null);
+              }
+            }}
+          />
         )}
 
-        {!normalizedSearchQuery && rootFolders.length === 0 && rootEndpoints.length === 0 && (
-          <p className="px-2 py-4 text-center text-sm text-zinc-400">
-            暂无接口，点击上方按钮创建
-          </p>
-        )}
+        {!normalizedSearchQuery &&
+          rootFolders.length === 0 &&
+          rootEndpoints.length === 0 && (
+            <p className="px-2 py-4 text-center text-sm text-zinc-400">
+              暂无接口，点击上方按钮创建
+            </p>
+          )}
       </div>
     </div>
   );
@@ -763,10 +812,11 @@ function SearchResultRow({
     <button
       type="button"
       onClick={onSelect}
+      aria-current={isSelected ? "page" : undefined}
       className={cn(
         "flex w-full min-w-0 items-start gap-2 rounded px-2 py-2 text-left text-sm",
         isSelected
-          ? "bg-zinc-100 dark:bg-zinc-800"
+          ? "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-900"
           : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
       )}
     >
@@ -820,7 +870,10 @@ function EndpointRow({
   return (
     <div className={cn("relative", isDraggingThis && "opacity-30")}>
       {isDropBefore && <div className={cn(dropLineClass, "top-0")} />}
-      <div
+      <button
+        type="button"
+        aria-current={isSelected ? "page" : undefined}
+        title={`${ep.method} ${ep.path}`}
         draggable
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
@@ -829,19 +882,26 @@ function EndpointRow({
         onDragLeave={onDragLeave}
         onClick={onSelect}
         className={cn(
-          "flex w-full items-center gap-1 rounded py-2 text-sm cursor-grab active:cursor-grabbing sm:py-1.5",
+          "group flex w-full min-w-0 items-center gap-1.5 rounded-lg py-2.5 text-sm cursor-grab active:cursor-grabbing",
           isSelected
-            ? "bg-zinc-100 dark:bg-zinc-800"
+            ? "bg-blue-50 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/50 dark:ring-blue-900"
             : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
         )}
         style={{ paddingLeft: `${depth * 16 + 4}px`, paddingRight: 4 }}
       >
         <GripVertical className="h-3 w-3 flex-shrink-0 text-zinc-300 dark:text-zinc-600" />
         <MethodBadge method={ep.method} />
-        <span className="flex-1 truncate text-left text-zinc-700 dark:text-zinc-300">
-          {ep.name || ep.path}
+        <span className="min-w-0 flex-1 text-left">
+          <span className="block truncate text-zinc-800 dark:text-zinc-200">
+            {ep.name || ep.path}
+          </span>
+          {ep.name && ep.name !== ep.path && (
+            <span className="mt-0.5 block truncate font-mono text-[11px] text-zinc-500">
+              {ep.path}
+            </span>
+          )}
         </span>
-      </div>
+      </button>
       {isDropAfter && <div className={cn(dropLineClass, "bottom-0")} />}
     </div>
   );

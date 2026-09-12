@@ -14,6 +14,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "test-results/**",
     "playwright-report/**",
+    "coverage/**",
+    ".playwright-cli/**",
+    "output/playwright/**",
   ]),
   {
     files: ["tests/e2e/**/*.ts"],
