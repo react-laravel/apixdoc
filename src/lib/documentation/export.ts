@@ -4,6 +4,7 @@ import {
   JsonNumber,
 } from "./json";
 import { stringify as stringifyYaml, type ScalarTag } from "yaml";
+import { mergeMedia } from "@/lib/specification/media";
 import { collectProjectEndpoints, folderPath } from "./navigation";
 import type { Folder, Project } from "@/lib/types";
 import { REQUEST_METHODS } from "@/lib/request/types";
@@ -37,7 +38,10 @@ export function exportOpenApi(project: Project): Record<string, unknown> {
   const securitySchemes: Record<string, unknown> = Object.create(null);
   for (const endpoint of collectProjectEndpoints(project)) {
     const method = endpoint.method.toLowerCase();
-    if (!REQUEST_METHODS.includes(endpoint.method.toUpperCase() as never))
+    if (
+      endpoint.method !== "TRACE" &&
+      !REQUEST_METHODS.includes(endpoint.method.toUpperCase() as never)
+    )
       throw new Error(`接口 ${endpoint.name} 使用了不支持的方法`);
     if (!endpoint.path.startsWith("/") || /[?#]/.test(endpoint.path))
       throw new Error(
@@ -50,6 +54,10 @@ export function exportOpenApi(project: Project): Record<string, unknown> {
       description: endpoint.description || "",
       operationId: endpoint.id,
     };
+    if (endpoint.serverUrl)
+      operation.servers = [
+        { url: endpoint.serverUrl.replace(/\{\{([^{}]+)\}\}/g, "{$1}") },
+      ];
     const tags = folderPath(endpoint.folderId, project.folders);
     if (tags.length) operation.tags = [tags.join(" / ")];
     const parameters = (endpoint.parameters ?? []).map((parameter) => ({
@@ -57,7 +65,10 @@ export function exportOpenApi(project: Project): Record<string, unknown> {
       in: parameter.location,
       required: parameter.location === "path" || parameter.required,
       description: parameter.description,
-      schema: { type: parameter.type || "string" },
+      schema:
+        parameter.schema && parameter.schema !== "{}"
+          ? json(parameter.schema, `${endpoint.name} 参数结构`)
+          : { type: parameter.type || "string" },
       ...(parameter.example
         ? { example: example(parameter.example, parameter.type) }
         : {}),
@@ -127,20 +138,35 @@ export function exportOpenApi(project: Project): Record<string, unknown> {
         media.example = /json/i.test(type)
           ? example(body.example, "json")
           : body.example;
-      operation.requestBody = { content: { [type]: media } };
+      operation.requestBody = {
+        content:
+          body.content && body.content !== "{}"
+            ? json(
+                mergeMedia(body.content, type, body.schema, body.example),
+                `${endpoint.name} 请求内容`,
+              )
+            : { [type]: media },
+      };
     }
     const responses: Record<string, unknown> = Object.create(null);
     for (const response of endpoint.responses ?? []) {
       if (
-        !Number.isInteger(response.statusCode) ||
-        response.statusCode < 100 ||
-        response.statusCode > 599
+        !/^(?:[1-5]\d\d|[1-5]XX|default)$/.test(
+          response.statusKey || String(response.statusCode),
+        )
       )
         throw new Error(`${endpoint.name} 的响应状态码不正确`);
-      const key = String(response.statusCode);
+      const key = response.statusKey || String(response.statusCode);
       const previous = object(responses[key]);
       const content = object(previous.content);
-      const type = response.contentType || "application/json";
+      const type = response.contentType;
+      if (!type) {
+        responses[key] = {
+          ...previous,
+          description: response.description || `HTTP ${key}`,
+        };
+        continue;
+      }
       if (content[type])
         throw new Error(`${endpoint.name} 存在重复的 ${key} ${type} 响应`);
       content[type] = {
@@ -163,8 +189,30 @@ export function exportOpenApi(project: Project): Record<string, unknown> {
       : { default: { description: "响应尚未定义" } };
     (paths[endpoint.path] ??= Object.create(null))[method] = operation;
   }
+  if (project.documentationSchemas) {
+    const schemas = Object.fromEntries(
+      Object.entries(project.documentationSchemas).map(([name, value]) => [
+        name,
+        json(value, `模型 ${name}`),
+      ]),
+    );
+    return {
+      openapi: project.documentationVersion || "3.1.0",
+      info: {
+        title: project.name,
+        description: project.description || "",
+        version: "1.0.0",
+      },
+      ...(project.baseUrl ? { servers: [{ url: project.baseUrl }] } : {}),
+      paths,
+      components: {
+        schemas,
+        ...(Object.keys(securitySchemes).length ? { securitySchemes } : {}),
+      },
+    };
+  }
   return {
-    openapi: "3.1.0",
+    openapi: project.documentationVersion || "3.1.0",
     info: {
       title: project.name,
       description: project.description || "",
@@ -223,7 +271,14 @@ export function exportPostman(project: Project): Record<string, unknown> {
     );
     const rawUrl = /^https?:\/\//i.test(postmanPath)
       ? postmanPath
-      : `{{baseUrl}}${postmanPath.startsWith("/") ? "" : "/"}${postmanPath}`;
+      : `${(endpoint.serverUrl || "{{baseUrl}}").replace(/\/+$/, "")}${postmanPath.startsWith("/") ? "" : "/"}${postmanPath}`;
+    const address = rawUrl.match(/^(https?):\/\/([^/]+)(.*)$/i);
+    const authority = address?.[2];
+    const port = authority?.match(/:(\d+)$/)?.[1];
+    const host = authority
+      ? authority.replace(/:\d+$/, "")
+      : rawUrl.split("/")[0];
+    const urlPath = address ? address[3] : rawUrl.slice(host.length);
     const request: Record<string, unknown> = {
       method: endpoint.method,
       description: endpoint.description,
@@ -234,14 +289,43 @@ export function exportPostman(project: Project): Record<string, unknown> {
           (query.length
             ? `?${query.map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`).join("&")}`
             : ""),
-        host: ["{{baseUrl}}"],
-        path: postmanPath.replace(/^\//, "").split("/"),
+        ...(address ? { protocol: address[1] } : {}),
+        ...(port ? { port } : {}),
+        host: [host],
+        path: urlPath.replace(/^\//, "").split("/"),
         query,
         variable: (endpoint.parameters ?? [])
           .filter((p) => p.location === "path")
           .map((p) => ({ key: p.name, value: p.example })),
       },
     };
+    if (endpoint.auth) {
+      const auth = object(json(endpoint.auth, "认证配置"));
+      if (auth.type === "bearer")
+        request.auth = {
+          type: "bearer",
+          bearer: [{ key: "token", value: auth.token, type: "string" }],
+        };
+      else if (auth.type === "basic")
+        request.auth = {
+          type: "basic",
+          basic: ["username", "password"].map((key) => ({
+            key,
+            value: auth[key],
+            type: "string",
+          })),
+        };
+      else if (auth.type === "apiKey")
+        request.auth = {
+          type: "apikey",
+          apikey: [
+            { key: "key", value: auth.key },
+            { key: "value", value: auth.value },
+            { key: "in", value: auth.location },
+          ],
+        };
+      else request.auth = { type: "noauth" };
+    }
     if (endpoint.requestBody) {
       request.body = {
         mode: "raw",
@@ -264,14 +348,16 @@ export function exportPostman(project: Project): Record<string, unknown> {
     const item = {
       name: endpoint.name || endpoint.path,
       request,
-      response: (endpoint.responses ?? []).map((r) => ({
-        name: r.description || `${r.statusCode}`,
-        originalRequest: request,
-        status: r.description || `${r.statusCode}`,
-        code: r.statusCode,
-        header: [{ key: "Content-Type", value: r.contentType }],
-        body: r.example,
-      })),
+      response: (endpoint.responses ?? [])
+        .filter((r) => r.statusCode >= 100 && r.statusCode <= 599)
+        .map((r) => ({
+          name: r.description || `${r.statusCode}`,
+          originalRequest: request,
+          status: r.description || `${r.statusCode}`,
+          code: r.statusCode,
+          header: [{ key: "Content-Type", value: r.contentType }],
+          body: r.example,
+        })),
     };
     const folder = endpoint.folderId && folderItems.get(endpoint.folderId);
     if (folder) (folder.item as Record<string, unknown>[]).push(item);

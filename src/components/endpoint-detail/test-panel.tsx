@@ -35,6 +35,7 @@ import {
 } from "@/lib/json-document";
 import {
   createRequestDraft,
+  readRequestAuth,
   draftFromRequest,
   extractPathParameters,
   prepareRequest,
@@ -79,6 +80,9 @@ interface TestPanelProps {
   globalHeaders: GlobalHeader[];
   globalParams: GlobalParam[];
   params: EndpointParam[];
+  endpointAuth?: string;
+  endpointServerUrl?: string;
+  endpointVariables?: string;
   endpointHeaders?: EndpointHeader[];
   bodyExample: string;
   bodyContentType?: string;
@@ -92,6 +96,9 @@ export function TestPanel(props: TestPanelProps) {
     projectId,
     endpointId,
     projectBaseUrl,
+    endpointAuth,
+    endpointServerUrl,
+    endpointVariables,
     environments = emptyEnvironments,
     onSend,
     onImportResponse,
@@ -108,6 +115,7 @@ export function TestPanel(props: TestPanelProps) {
     globalParams: props.globalParams,
     globalHeaders: props.globalHeaders,
     endpointHeaders: props.endpointHeaders,
+    endpointAuth: props.endpointAuth,
     bodyExample: props.bodyExample,
     bodyContentType: props.bodyContentType,
   });
@@ -144,8 +152,23 @@ export function TestPanel(props: TestPanelProps) {
   const environmentSignature = JSON.stringify(
     [...environments].sort((a, b) => a.name.localeCompare(b.name)),
   );
-  const environment = environments.find(
-    (env) => `env:${env.name}` === selectedEnvironment,
+  const environment = useMemo(
+    () =>
+      selectedEnvironment === "endpoint" && endpointServerUrl
+        ? {
+            name: "接口默认",
+            baseUrl: endpointServerUrl,
+            variables: JSON.stringify(
+              Object.fromEntries([
+                ...environmentVariables(
+                  environments.find((env) => env.isDefault)?.variables || "{}",
+                ),
+                ...environmentVariables(endpointVariables || "{}"),
+              ]),
+            ),
+          }
+        : environments.find((env) => `env:${env.name}` === selectedEnvironment),
+    [selectedEnvironment, endpointServerUrl, endpointVariables, environments],
   );
   const customAddress = /^https?:\/\//i.test(draft.address.trim());
   const environmentName = customAddress
@@ -173,8 +196,15 @@ export function TestPanel(props: TestPanelProps) {
   useEffect(() => {
     const choices: Environment[] = JSON.parse(environmentSignature);
     const defaultName = choices.find((choice) => choice.isDefault)?.name;
-    const fallback = defaultName ? `env:${defaultName}` : "project";
-    setDraft((previous) => ({ ...previous, auth: { type: "none" } }));
+    const fallback = endpointServerUrl
+      ? "endpoint"
+      : defaultName
+        ? `env:${defaultName}`
+        : "project";
+    setDraft((previous) => ({
+      ...previous,
+      auth: readRequestAuth(endpointAuth),
+    }));
     try {
       const remembered = environmentStorageKey
         ? sessionStorage.getItem(environmentStorageKey)
@@ -182,6 +212,7 @@ export function TestPanel(props: TestPanelProps) {
       setSelectedEnvironment(
         remembered &&
           (remembered === "project" ||
+            (remembered === "endpoint" && !!endpointServerUrl) ||
             choices.some((choice) => `env:${choice.name}` === remembered))
           ? remembered
           : fallback,
@@ -189,7 +220,12 @@ export function TestPanel(props: TestPanelProps) {
     } catch {
       setSelectedEnvironment(fallback);
     }
-  }, [environmentStorageKey, environmentSignature]);
+  }, [
+    environmentStorageKey,
+    environmentSignature,
+    endpointAuth,
+    endpointServerUrl,
+  ]);
 
   useEffect(() => {
     if (previousSignature.current === documentSignature) return;
@@ -359,6 +395,9 @@ export function TestPanel(props: TestPanelProps) {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="project">项目默认</SelectItem>
+              {endpointServerUrl && (
+                <SelectItem value="endpoint">接口默认</SelectItem>
+              )}
               {environments.map((env) => (
                 <SelectItem key={env.id || env.name} value={`env:${env.name}`}>
                   {env.name}

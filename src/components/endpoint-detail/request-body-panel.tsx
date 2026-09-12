@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 
 interface RequestBodyPanelProps {
+  contentTypes?: string[];
   contentType: string;
   schema: string;
   example: string;
@@ -25,6 +26,7 @@ interface RequestBodyPanelProps {
 
 export function RequestBodyPanel({
   contentType,
+  contentTypes = [],
   schema,
   example,
   onContentTypeChange,
@@ -43,6 +45,22 @@ export function RequestBodyPanel({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            {[...new Set([...contentTypes, contentType])]
+              .filter(
+                (type) =>
+                  type &&
+                  ![
+                    "application/json",
+                    "application/x-www-form-urlencoded",
+                    "multipart/form-data",
+                    "text/plain",
+                  ].includes(type),
+              )
+              .map((type) => (
+                <SelectItem key={type} value={type}>
+                  {type}
+                </SelectItem>
+              ))}
             <SelectItem value="application/json">application/json</SelectItem>
             <SelectItem value="application/x-www-form-urlencoded">
               application/x-www-form-urlencoded

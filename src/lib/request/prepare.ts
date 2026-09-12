@@ -10,6 +10,7 @@ import type {
 import {
   REQUEST_METHODS,
   requestRow,
+  type RequestAuth,
   type RequestDraft,
   type RequestRow,
   type PreparedRequest,
@@ -46,12 +47,45 @@ export function mergeRows(
       map.set(ignoreCase ? row.key.toLowerCase() : row.key, row);
   return [...map.values()];
 }
+export function readRequestAuth(source?: string): RequestAuth {
+  try {
+    const auth = JSON.parse(source || "{}");
+    if (auth?.type === "bearer" && typeof auth.token === "string")
+      return { type: "bearer", token: auth.token };
+    if (
+      auth?.type === "basic" &&
+      typeof auth.username === "string" &&
+      typeof auth.password === "string"
+    )
+      return {
+        type: "basic",
+        username: auth.username,
+        password: auth.password,
+      };
+    if (
+      auth?.type === "apiKey" &&
+      typeof auth.key === "string" &&
+      typeof auth.value === "string" &&
+      ["header", "query"].includes(auth.location)
+    )
+      return {
+        type: "apiKey",
+        key: auth.key,
+        value: auth.value,
+        location: auth.location,
+      };
+  } catch {
+    /* Legacy endpoints carry an empty auth object. */
+  }
+  return { type: "none" };
+}
 export function createRequestDraft(input: {
   method: string;
   path: string;
   params: EndpointParam[];
   globalParams: GlobalParam[];
   globalHeaders: GlobalHeader[];
+  endpointAuth?: string;
   endpointHeaders?: EndpointHeader[];
   bodyExample: string;
   bodyContentType?: string;
@@ -85,7 +119,7 @@ export function createRequestDraft(input: {
       local("path"),
     ]),
     variables: [],
-    auth: { type: "none" },
+    auth: readRequestAuth(input.endpointAuth),
     body: input.bodyExample,
     bodyMode: input.bodyContentType?.startsWith(
       "application/x-www-form-urlencoded",

@@ -1,3 +1,4 @@
+import { parseDocumentJson } from "@/lib/documentation/json";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -6,14 +7,14 @@ import { type ApiResponse } from "@/lib/utils";
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -27,7 +28,7 @@ export async function POST(
     if (!endpoint) {
       return NextResponse.json(
         { success: false, error: "Endpoint not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -43,7 +44,7 @@ export async function POST(
     if (!canEditContent(member?.role)) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -53,15 +54,25 @@ export async function POST(
     if (!Array.isArray(paramList)) {
       return NextResponse.json(
         { success: false, error: "params must be an array" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
+    try {
+      for (const p of paramList)
+        if (p.schema !== undefined) parseDocumentJson(p.schema || "{}");
+    } catch {
+      return NextResponse.json(
+        { success: false, error: "参数 Schema 必须为有效 JSON" },
+        { status: 400 },
+      );
+    }
     await prisma.$transaction([
       prisma.endpointParam.deleteMany({ where: { endpointId: id } }),
       prisma.endpointParam.createMany({
         data: paramList.map(
           (p: {
+            schema?: string;
             name: string;
             type?: string;
             required?: boolean;
@@ -71,12 +82,13 @@ export async function POST(
           }) => ({
             endpointId: id,
             name: p.name,
+            schema: typeof p.schema === "string" ? p.schema : "{}",
             type: p.type || "string",
             required: p.required || false,
             description: p.description || "",
             example: p.example || "",
             location: p.location || "query",
-          })
+          }),
         ),
       }),
     ]);
@@ -89,7 +101,7 @@ export async function POST(
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to update parameters" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

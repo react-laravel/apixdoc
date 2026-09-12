@@ -1,3 +1,5 @@
+import { parseDocumentJson, stringifyDocumentJson } from "./json";
+import { record, parseSpecification } from "@/lib/specification/value";
 import { inspectJson, inspectJsonTemplate } from "@/lib/json-document";
 import { createScanner, type Node } from "jsonc-parser";
 import type { Endpoint, EndpointDetailData, Folder } from "@/lib/types";
@@ -211,6 +213,61 @@ export function sanitizeExample(source: string, schema = false): string {
   return result;
 }
 
+function safeMedia(content?: string): string | undefined {
+  if (!content || content === "{}") return undefined;
+  try {
+    const result: Record<string, unknown> = Object.create(null);
+    for (const [mime, value] of Object.entries(
+      record(parseDocumentJson(content)),
+    )) {
+      const media = record(value);
+      const safe: Record<string, unknown> = Object.create(null);
+      if (media.schema !== undefined)
+        safe.schema = parseDocumentJson(
+          sanitizeExample(stringifyDocumentJson(media.schema), true),
+        );
+      if (media.example !== undefined)
+        safe.example = parseDocumentJson(
+          sanitizeExample(stringifyDocumentJson(media.example)),
+        );
+      if (media.examples) {
+        safe.examples = Object.fromEntries(
+          Object.entries(record(media.examples)).map(([name, example]) => [
+            name,
+            {
+              value: parseDocumentJson(
+                sanitizeExample(
+                  stringifyDocumentJson(record(example).value ?? null),
+                ),
+              ),
+            },
+          ]),
+        );
+      }
+      result[mime] = safe;
+    }
+    return stringifyDocumentJson(result);
+  } catch {
+    return undefined;
+  }
+}
+function safeParameterSchema(name: string, schema: string): string {
+  if (!isSensitiveName(name)) return sanitizeExample(schema, true);
+  try {
+    const wrapped = { properties: { [name]: parseDocumentJson(schema) } };
+    return stringifyDocumentJson(
+      record(
+        record(
+          parseDocumentJson(
+            sanitizeExample(stringifyDocumentJson(wrapped), true),
+          ),
+        ).properties,
+      )[name],
+    );
+  } catch {
+    return "{}";
+  }
+}
 export function sanitizeDocumentationEndpoint<T extends EndpointDetailData>(
   endpoint: T,
 ): Endpoint {
@@ -219,13 +276,23 @@ export function sanitizeDocumentationEndpoint<T extends EndpointDetailData>(
     name: endpoint.name,
     method: endpoint.method,
     path: documentationPath(endpoint.path),
+    ...(endpoint.serverUrl
+      ? { serverUrl: documentationUrl(endpoint.serverUrl) }
+      : {}),
     description: endpoint.description,
     folderId:
       "folderId" in endpoint && typeof endpoint.folderId === "string"
         ? endpoint.folderId
         : null,
     parameters: endpoint.parameters?.map((param) => ({
-      ...param,
+      name: param.name,
+      type: param.type,
+      location: param.location,
+      required: param.required,
+      description: param.description,
+      ...(param.schema
+        ? { schema: safeParameterSchema(param.name, param.schema) }
+        : {}),
       example: isSensitiveName(param.name)
         ? param.location === "header"
           ? documentationHeader(param.name, param.example)
@@ -233,18 +300,26 @@ export function sanitizeDocumentationEndpoint<T extends EndpointDetailData>(
         : sanitizeExample(param.example),
     })),
     headers: endpoint.headers?.map((header) => ({
-      ...header,
+      key: header.key,
+      description: header.description,
+      required: header.required,
       value: documentationHeader(header.key, header.value),
     })),
     requestBody: endpoint.requestBody
       ? {
-          ...endpoint.requestBody,
+          contentType: endpoint.requestBody.contentType,
+          ...(safeMedia(endpoint.requestBody.content)
+            ? { content: safeMedia(endpoint.requestBody.content) }
+            : {}),
           schema: sanitizeExample(endpoint.requestBody.schema, true),
           example: sanitizeExample(endpoint.requestBody.example),
         }
       : null,
     responses: endpoint.responses?.map((response) => ({
-      ...response,
+      statusCode: response.statusCode,
+      statusKey: response.statusKey,
+      description: response.description,
+      contentType: response.contentType,
       ...(response.schema
         ? { schema: sanitizeExample(response.schema, true) }
         : {}),
@@ -253,6 +328,11 @@ export function sanitizeDocumentationEndpoint<T extends EndpointDetailData>(
   };
 }
 export interface DocumentationProjectSource {
+  specificationImports?: {
+    format: string;
+    document?: string;
+    version?: string;
+  }[];
   id: string;
   name: string;
   description: string;
@@ -269,6 +349,11 @@ export function sanitizeDocumentationProject(
     name: project.name,
     description: project.description,
     baseUrl: documentationUrl(project.baseUrl),
+    documentationSchemas: publicSchemas(project.specificationImports),
+    documentationVersion:
+      project.specificationImports?.find(
+        (source) => source.format === "openapi",
+      )?.version || "3.1.0",
     isPublic: project.isPublic,
     folders: project.folders.map((folder) => ({
       id: folder.id,
@@ -281,4 +366,19 @@ export function sanitizeDocumentationProject(
     globalHeaders: [],
     globalParams: [],
   };
+}
+
+export function publicSchemas(
+  sources: { format: string; document?: string }[] = [],
+) {
+  const schemas: Record<string, string> = Object.create(null);
+  for (const source of sources) {
+    if (source.format !== "openapi" || !source.document) continue;
+    const root = record(parseSpecification(source.document));
+    for (const [name, schema] of Object.entries(
+      record(record(root.components).schemas),
+    ))
+      schemas[name] = sanitizeExample(stringifyDocumentJson(schema), true);
+  }
+  return Object.fromEntries(Object.entries(schemas));
 }

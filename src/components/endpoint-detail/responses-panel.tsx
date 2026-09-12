@@ -62,13 +62,24 @@ export function ResponsesPanel({
             <div>
               <label className="mb-1 block text-xs font-medium">状态码</label>
               <Input
-                type="number"
-                value={r.statusCode}
+                type={r.statusKey ? "text" : "number"}
+                value={r.statusKey || r.statusCode}
                 onChange={(e) =>
-                  onUpdate(i, "statusCode", parseInt(e.target.value) || 0)
+                  r.statusKey
+                    ? onUpdate(i, "statusKey", e.target.value)
+                    : onUpdate(i, "statusCode", parseInt(e.target.value) || 0)
                 }
                 className="h-8 w-full text-xs sm:w-24"
               />
+              <button
+                type="button"
+                className="mt-1 block text-[10px] text-zinc-500"
+                onClick={() =>
+                  onUpdate(i, "statusKey", r.statusKey ? "" : "default")
+                }
+              >
+                数字 / default / 2XX
+              </button>
             </div>
             <div className="flex-1">
               <label className="mb-1 block text-xs font-medium">描述</label>
@@ -83,13 +94,24 @@ export function ResponsesPanel({
                 Content-Type
               </label>
               <Select
-                value={r.contentType}
-                onValueChange={(v) => onUpdate(i, "contentType", v)}
+                value={r.contentType || "__empty"}
+                onValueChange={(v) =>
+                  onUpdate(i, "contentType", v === "__empty" ? "" : v)
+                }
               >
                 <SelectTrigger className="h-8 w-48 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__empty">无响应体</SelectItem>
+                  {r.contentType &&
+                    !["application/json", "text/plain", "text/html"].includes(
+                      r.contentType,
+                    ) && (
+                      <SelectItem value={r.contentType}>
+                        {r.contentType}
+                      </SelectItem>
+                    )}
                   <SelectItem value="application/json">
                     application/json
                   </SelectItem>
@@ -104,19 +126,19 @@ export function ResponsesPanel({
               编辑响应结构
             </summary>
             <JsonWorkbench
-              label={`响应结构 ${r.statusCode}`}
+              label={`响应结构 ${r.statusKey || r.statusCode}`}
               value={r.schema || "{}"}
               onChange={(value) => onUpdate(i, "schema", value)}
               disabled={saving}
             />
           </details>
           <JsonWorkbench
-            label={`响应示例 ${r.statusCode}`}
+            label={`响应示例 ${r.statusKey || r.statusCode}`}
             value={r.example}
             onChange={(value) => onUpdate(i, "example", value)}
             disabled={saving}
             language={isJsonContentType(r.contentType) ? "json" : "text"}
-            filename={`response-${r.statusCode}.${isJsonContentType(r.contentType) ? "json" : "txt"}`}
+            filename={`response-${r.statusKey || r.statusCode}.${isJsonContentType(r.contentType) ? "json" : "txt"}`}
           />
         </div>
       ))}

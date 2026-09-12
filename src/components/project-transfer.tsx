@@ -1,4 +1,5 @@
 "use client";
+import { SpecificationImport } from "@/components/specification-import";
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,11 @@ import type { Project } from "@/lib/types";
 
 export function ProjectTransfer({
   project,
+  onReload,
+  beforeImport,
 }: {
   project: Project;
+  beforeImport?: () => boolean;
   onReload?: () => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -58,6 +62,13 @@ export function ProjectTransfer({
   };
   return (
     <>
+      {project.permissions?.canEdit !== false && (
+        <SpecificationImport
+          project={project}
+          onReload={onReload}
+          beforeImport={beforeImport}
+        />
+      )}
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
         <Download className="size-3.5" />
         导出
@@ -67,7 +78,7 @@ export function ProjectTransfer({
           <DialogHeader>
             <DialogTitle>导出接口文档</DialogTitle>
             <DialogDescription>
-              导出当前接口、参数、结构和响应示例。运行环境与全局配置不在导出范围内。
+              导出当前接口文档。相同格式的导入内容保留原始结构；转换格式时仅转换可映射的接口数据。
             </DialogDescription>
           </DialogHeader>
           <Select value={format} onValueChange={setFormat} disabled={loading}>
@@ -75,8 +86,8 @@ export function ProjectTransfer({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="openapi-json">OpenAPI 3.1 · JSON</SelectItem>
-              <SelectItem value="openapi-yaml">OpenAPI 3.1 · YAML</SelectItem>
+              <SelectItem value="openapi-json">OpenAPI · JSON</SelectItem>
+              <SelectItem value="openapi-yaml">OpenAPI · YAML</SelectItem>
               <SelectItem value="postman-json">
                 Postman Collection 2.1 · JSON
               </SelectItem>
@@ -85,6 +96,26 @@ export function ProjectTransfer({
           <p className="text-xs leading-6 text-zinc-500">
             内部导出包含接口自身的请求与响应示例，分享文件前请检查内容。公开文档中的运行配置和已识别认证示例会隐藏。
           </p>
+          {!!project.specificationImports?.length && (
+            <details>
+              <summary className="cursor-pointer text-sm">
+                下载原始规范（{project.specificationImports.length}）
+              </summary>
+              <ul className="mt-2 max-h-40 space-y-2 overflow-auto text-sm">
+                {project.specificationImports.map((source) => (
+                  <li key={source.id}>
+                    <a
+                      className="break-all text-blue-600 hover:underline"
+                      href={`/api/projects/${project.id}/sources/${source.id}`}
+                      download
+                    >
+                      {source.name} · {source.format} {source.version}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
           {error && (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
               {error}

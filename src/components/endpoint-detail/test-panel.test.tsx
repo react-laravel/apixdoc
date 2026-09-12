@@ -85,6 +85,35 @@ describe("environment and request workflows", () => {
     body: '{"ok":true}',
     duration: 12,
   };
+  it("starts imported requests with their own server and inherited collection authentication", async () => {
+    const onSend = vi.fn().mockResolvedValue(success);
+    render(
+      <TestPanel
+        {...props}
+        endpointServerUrl="https://{{region}}.example.com/v3"
+        endpointVariables='{"region":"eu","token":"sample"}'
+        endpointAuth='{"type":"bearer","token":"{{token}}"}'
+        environments={[
+          {
+            name: "Imported",
+            baseUrl: "https://other.example.com",
+            variables: '{"region":"wrong","token":"wrong"}',
+            isDefault: true,
+          },
+        ]}
+        onSend={onSend}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "发送请求" }));
+    await waitFor(() =>
+      expect(onSend).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "https://eu.example.com/v3/users",
+          headers: expect.objectContaining({ authorization: "Bearer sample" }),
+        }),
+      ),
+    );
+  });
   it("uses the selected environment and forwards resolved path, query and auth values", async () => {
     const user = userEvent.setup();
     const onSend = vi.fn().mockResolvedValue(success);

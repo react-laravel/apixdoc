@@ -58,6 +58,7 @@ export async function GET(
           orderBy: { order: "asc" },
           include: endpointInclude,
         },
+        specificationImports: true,
         globalHeaders: true,
         globalParams: true,
         environments: true,
@@ -67,13 +68,29 @@ export async function GET(
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      data: fullProject && {
-        ...(permissions.canReadConfiguration ? fullProject : sanitizeDocumentationProject(fullProject)),
-        permissions,
+    return NextResponse.json(
+      {
+        success: true,
+        data: fullProject && {
+          ...(permissions.canReadConfiguration
+            ? {
+                ...fullProject,
+                specificationImports: fullProject.specificationImports?.map(
+                  ({ id, name, format, version, createdAt }) => ({
+                    id,
+                    name,
+                    format,
+                    version,
+                    createdAt,
+                  }),
+                ),
+              }
+            : sanitizeDocumentationProject(fullProject)),
+          permissions,
+        },
       },
-    }, { headers: { "Cache-Control": "private, no-store" } });
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch project" },
@@ -96,7 +113,10 @@ export async function PUT(
     }
 
     const { id } = await params;
-    const { permissions, project: currentProject } = await getProjectAccess(id, session.user.id);
+    const { permissions, project: currentProject } = await getProjectAccess(
+      id,
+      session.user.id,
+    );
 
     if (!permissions.canConfigure) {
       return NextResponse.json(
@@ -108,7 +128,18 @@ export async function PUT(
     let data;
     try {
       const body = await request.json();
-      if (body.isPublic !== undefined && body.isPublic !== currentProject?.isPublic && !permissions.canManage) return NextResponse.json({ success: false, error: "Only project managers can change visibility" }, { status: 403 });
+      if (
+        body.isPublic !== undefined &&
+        body.isPublic !== currentProject?.isPublic &&
+        !permissions.canManage
+      )
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Only project managers can change visibility",
+          },
+          { status: 403 },
+        );
       data = parseProjectSettings(body);
     } catch (error) {
       return NextResponse.json(

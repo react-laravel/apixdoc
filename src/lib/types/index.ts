@@ -10,6 +10,12 @@ export interface Folder {
 }
 
 export interface Endpoint {
+  sourceImportId?: string | null;
+  sourcePointer?: string;
+  sourceDefinition?: string;
+  sourceBaseline?: string;
+  serverUrl?: string;
+  auth?: string;
   id: string;
   name: string;
   method: string;
@@ -23,6 +29,7 @@ export interface Endpoint {
 }
 
 export interface EndpointParam {
+  schema?: string;
   id?: string;
   name: string;
   type: string;
@@ -41,6 +48,7 @@ export interface EndpointHeader {
 }
 
 export interface RequestBody {
+  content?: string;
   id?: string;
   contentType: string;
   schema: string;
@@ -48,6 +56,7 @@ export interface RequestBody {
 }
 
 export interface EndpointResponse {
+  statusKey?: string;
   schema?: string;
   id?: string;
   statusCode: number;
@@ -57,6 +66,9 @@ export interface EndpointResponse {
 }
 
 export interface Project {
+  specificationImports?: import("@/lib/specification/types").SpecificationSource[];
+  documentationVersion?: string;
+  documentationSchemas?: Record<string, string>;
   permissions?: ProjectPermissions;
   id: string;
   name: string;
@@ -141,8 +153,7 @@ export interface SidebarFolder {
 }
 
 export type DragItem =
-  | { type: "folder"; id: string }
-  | { type: "endpoint"; id: string };
+  { type: "folder"; id: string } | { type: "endpoint"; id: string };
 
 export type DropTarget =
   | { type: "folder"; id: string; position: "before" | "after" | "inside" }
@@ -203,6 +214,12 @@ export interface ProjectListItem {
 // ---- Detail view types (for endpoint-detail) ----
 
 export interface EndpointDetailData {
+  sourceImportId?: string | null;
+  sourcePointer?: string;
+  sourceDefinition?: string;
+  sourceBaseline?: string;
+  serverUrl?: string;
+  auth?: string;
   id: string;
   name: string;
   method: string;

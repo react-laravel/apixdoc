@@ -100,7 +100,7 @@ export default function ProjectPage() {
 
   return (
     <div className="-m-3 flex h-[calc(100%+1.5rem)] min-h-0 flex-col sm:-m-6 sm:h-[calc(100%+3rem)]">
-      <div className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-3 py-3 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-3 py-3 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900">
         <Link
           href="/dashboard/projects"
           aria-label="返回项目列表"
@@ -118,7 +118,15 @@ export default function ProjectPage() {
             {project.baseUrl || "尚未配置基础 URL"}
           </p>
         </div>
-        <ProjectTransfer project={project} onReload={fetchProject} />
+        <ProjectTransfer
+          project={project}
+          beforeImport={canLeave}
+          onReload={async () => {
+            hasDraft.current = false;
+            handleSelectEndpoint(null);
+            await fetchProject();
+          }}
+        />
         <Link
           href={`/docs/${project.id}`}
           target="_blank"
@@ -146,7 +154,7 @@ export default function ProjectPage() {
       {(saveError || loadError) && !settingsOpen && (
         <div
           role="alert"
-          className="flex shrink-0 items-center gap-3 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400"
+          className="flex shrink-0 flex-wrap items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-400"
         >
           <span className="min-w-0 flex-1">{saveError || loadError}</span>
           {loadError && (

@@ -39,7 +39,7 @@ describe("ParamsPanel", () => {
     const { container } = render(<ParamsPanel {...defaultProps} />);
 
     // Verify inputs are rendered with correct values using DOM queries
-    const rows = container.querySelectorAll("tbody tr");
+    const rows = container.querySelectorAll("tbody tr:has(input)");
     expect(rows.length).toBe(2);
 
     // First param row: name="id", type="string"
@@ -54,7 +54,7 @@ describe("ParamsPanel", () => {
 
     // Verify table has correct structure (header + 2 data rows)
     expect(container.querySelector("thead")).not.toBeNull();
-    expect(container.querySelectorAll("tbody tr").length).toBe(2);
+    expect(container.querySelectorAll("tbody tr:has(input)").length).toBe(2);
   });
 
   it("renders empty table when no params", () => {
@@ -91,7 +91,7 @@ describe("ParamsPanel", () => {
     const { container } = render(<ParamsPanel {...defaultProps} />);
 
     // Scope to the first data row (index 0 in tbody)
-    const rows = container.querySelectorAll("tbody tr");
+    const rows = container.querySelectorAll("tbody tr:has(input)");
     const firstRowInputs = rows[0].querySelectorAll("input");
     fireEvent.change(firstRowInputs[0], { target: { value: "newId" } });
 
@@ -101,14 +101,18 @@ describe("ParamsPanel", () => {
   it("shows duplicate warning when duplicateFields is not empty", () => {
     render(<ParamsPanel {...defaultProps} duplicateFields={["id"]} />);
 
-    expect(screen.getByText(/以下参数在请求体和请求参数中同时出现/)).toBeDefined();
+    expect(
+      screen.getByText(/以下参数在请求体和请求参数中同时出现/),
+    ).toBeDefined();
     expect(screen.getByText("id")).toBeDefined();
   });
 
   it("does not show duplicate warning when duplicateFields is empty", () => {
     render(<ParamsPanel {...defaultProps} duplicateFields={[]} />);
 
-    expect(screen.queryByText(/以下参数在请求体和请求参数中同时出现/)).toBeNull();
+    expect(
+      screen.queryByText(/以下参数在请求体和请求参数中同时出现/),
+    ).toBeNull();
   });
 
   it("shows multiple duplicate fields", () => {

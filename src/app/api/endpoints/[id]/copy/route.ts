@@ -46,6 +46,12 @@ export async function POST(
       : null;
     const created = await prisma.apiEndpoint.create({
       data: {
+        sourceImportId: source.sourceImportId,
+        sourcePointer: source.sourcePointer,
+        sourceDefinition: source.sourceDefinition,
+        sourceBaseline: source.sourceBaseline,
+        serverUrl: source.serverUrl,
+        auth: source.auth,
         projectId: source.projectId,
         folderId: folder?.id ?? null,
         createdById: session.user.id,
@@ -56,7 +62,16 @@ export async function POST(
         order: source.order + 1,
         parameters: {
           create: source.parameters.map(
-            ({ name, type, required, description, example, location }) => ({
+            ({
+              name,
+              type,
+              required,
+              description,
+              example,
+              location,
+              schema,
+            }) => ({
+              schema,
               name,
               type,
               required,
@@ -80,6 +95,7 @@ export async function POST(
           ? {
               requestBody: {
                 create: {
+                  content: source.requestBody.content,
                   contentType: source.requestBody.contentType,
                   schema: source.requestBody.schema,
                   example: source.requestBody.example,
@@ -89,8 +105,16 @@ export async function POST(
           : {}),
         responses: {
           create: source.responses.map(
-            ({ statusCode, description, contentType, schema, example }) => ({
+            ({
               statusCode,
+              statusKey,
+              description,
+              contentType,
+              schema,
+              example,
+            }) => ({
+              statusCode,
+              statusKey,
               description,
               contentType,
               schema,

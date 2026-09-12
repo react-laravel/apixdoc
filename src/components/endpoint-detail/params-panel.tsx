@@ -1,5 +1,7 @@
 "use client";
 
+import { Fragment } from "react";
+import { JsonWorkbench } from "@/components/json/json-workbench";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -61,82 +63,105 @@ export function ParamsPanel({
               </tr>
             )}
             {params.map((p, i) => (
-              <tr
-                key={i}
-                className="border-b border-zinc-100 dark:border-zinc-800"
-              >
-                <td className="px-3 py-2">
-                  <Input
-                    value={p.name}
-                    onChange={(e) => onUpdate(i, "name", e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <Select
-                    value={p.type}
-                    onValueChange={(v) => onUpdate(i, "type", v)}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="string">string</SelectItem>
-                      <SelectItem value="number">number</SelectItem>
-                      <SelectItem value="integer">integer</SelectItem>
-                      <SelectItem value="boolean">boolean</SelectItem>
-                      <SelectItem value="array">array</SelectItem>
-                      <SelectItem value="object">object</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <input
-                    type="checkbox"
-                    checked={p.required}
-                    onChange={(e) => onUpdate(i, "required", e.target.checked)}
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <Select
-                    value={p.location}
-                    onValueChange={(v) => onUpdate(i, "location", v)}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="query">query</SelectItem>
-                      <SelectItem value="path">path</SelectItem>
-                      <SelectItem value="header">header</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </td>
-                <td className="px-3 py-2">
-                  <Input
-                    value={p.description}
-                    onChange={(e) => onUpdate(i, "description", e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                </td>
-                <td className="px-3 py-2">
-                  <Input
-                    value={p.example}
-                    onChange={(e) => onUpdate(i, "example", e.target.value)}
-                    className="h-8 text-xs"
-                  />
-                </td>
-                <td className="px-3 py-2 text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => onRemove(i)}
-                    className="text-xs"
-                  >
-                    删除
-                  </Button>
-                </td>
-              </tr>
+              <Fragment key={i}>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                  <td className="px-3 py-2">
+                    <Input
+                      value={p.name}
+                      onChange={(e) => onUpdate(i, "name", e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Select
+                      disabled={
+                        !!p.schema &&
+                        /"(?:\$ref|allOf|oneOf|anyOf)"\s*:/.test(p.schema)
+                      }
+                      value={p.type}
+                      onValueChange={(v) => onUpdate(i, "type", v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="string">string</SelectItem>
+                        <SelectItem value="number">number</SelectItem>
+                        <SelectItem value="integer">integer</SelectItem>
+                        <SelectItem value="boolean">boolean</SelectItem>
+                        <SelectItem value="array">array</SelectItem>
+                        <SelectItem value="object">object</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <input
+                      type="checkbox"
+                      checked={p.required}
+                      onChange={(e) =>
+                        onUpdate(i, "required", e.target.checked)
+                      }
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Select
+                      value={p.location}
+                      onValueChange={(v) => onUpdate(i, "location", v)}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="query">query</SelectItem>
+                        <SelectItem value="path">path</SelectItem>
+                        <SelectItem value="header">header</SelectItem>
+                        <SelectItem value="cookie">cookie</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input
+                      value={p.description}
+                      onChange={(e) =>
+                        onUpdate(i, "description", e.target.value)
+                      }
+                      className="h-8 text-xs"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <Input
+                      value={p.example}
+                      onChange={(e) => onUpdate(i, "example", e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onRemove(i)}
+                      className="text-xs"
+                    >
+                      删除
+                    </Button>
+                  </td>
+                </tr>
+                <tr>
+                  <td colSpan={7} className="px-3 pb-2">
+                    <details>
+                      <summary className="cursor-pointer text-xs text-zinc-500">
+                        参数结构 · {p.name || "未命名"}
+                      </summary>
+                      <JsonWorkbench
+                        label={`参数结构 ${p.name}`}
+                        value={p.schema || "{}"}
+                        onChange={(value) => onUpdate(i, "schema", value)}
+                        disabled={saving}
+                      />
+                    </details>
+                  </td>
+                </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>

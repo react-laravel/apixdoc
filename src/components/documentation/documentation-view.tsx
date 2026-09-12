@@ -189,9 +189,9 @@ export function DocumentationView({
                   <h2 className="text-2xl font-semibold">
                     {selected.name || selected.path}
                   </h2>
-                  {project.baseUrl && (
+                  {(selected.serverUrl || project.baseUrl) && (
                     <p className="mt-2 break-all font-mono text-xs text-zinc-500">
-                      {project.baseUrl}
+                      {selected.serverUrl || project.baseUrl}
                     </p>
                   )}
                 </div>
@@ -325,7 +325,7 @@ export function DocumentationView({
                       >
                         <div className="flex flex-wrap items-center gap-3">
                           <Badge variant="secondary">
-                            {response.statusCode}
+                            {response.statusKey || response.statusCode}
                           </Badge>
                           <span className="text-sm">
                             {response.description}
@@ -336,7 +336,7 @@ export function DocumentationView({
                         </div>
                         {response.example && (
                           <JsonWorkbench
-                            label={`响应示例 ${response.statusCode}`}
+                            label={`响应示例 ${response.statusKey || response.statusCode}`}
                             value={response.example}
                             readOnly
                             language={
@@ -352,7 +352,7 @@ export function DocumentationView({
                               查看响应结构
                             </summary>
                             <JsonWorkbench
-                              label={`响应结构 ${response.statusCode}`}
+                              label={`响应结构 ${response.statusKey || response.statusCode}`}
                               value={response.schema}
                               readOnly
                             />
@@ -374,6 +374,33 @@ export function DocumentationView({
               <div className="py-20 text-center text-zinc-500">
                 项目还没有接口文档
               </div>
+            )}
+            {!!Object.keys(project.documentationSchemas || {}).length && (
+              <section className="space-y-3">
+                <h3 className="font-semibold">数据模型</h3>
+                <p className="text-xs text-zinc-500">
+                  接口结构中的 #/components/schemas 引用可在此查看。
+                </p>
+                {Object.entries(project.documentationSchemas || {}).map(
+                  ([name, schema]) => (
+                    <details
+                      key={name}
+                      className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+                    >
+                      <summary className="cursor-pointer font-mono text-sm">
+                        {name}
+                      </summary>
+                      <div className="mt-3">
+                        <JsonWorkbench
+                          label={`数据模型 ${name}`}
+                          value={schema}
+                          readOnly
+                        />
+                      </div>
+                    </details>
+                  ),
+                )}
+              </section>
             )}
           </div>
         </main>

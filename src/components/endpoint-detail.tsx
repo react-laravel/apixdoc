@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiFetch } from "@/lib/api-fetch";
 import { Copy, Trash2 } from "lucide-react";
@@ -19,6 +19,13 @@ import { BasicInfoPanel } from "@/components/endpoint-detail/basic-info-panel";
 import { ParamsPanel } from "@/components/endpoint-detail/params-panel";
 import { RequestBodyPanel } from "@/components/endpoint-detail/request-body-panel";
 import { ResponsesPanel } from "@/components/endpoint-detail/responses-panel";
+import { record } from "@/lib/specification/value";
+import { mergeMedia, readMedia } from "@/lib/specification/media";
+import {
+  parseDocumentJson,
+  stringifyDocumentJson,
+} from "@/lib/documentation/json";
+import { JsonWorkbench } from "@/components/json/json-workbench";
 import { TestPanel } from "@/components/endpoint-detail/test-panel";
 
 interface EndpointDetailProps {
@@ -48,6 +55,16 @@ export function EndpointDetail({
   onDelete,
   actionBusy = false,
 }: EndpointDetailProps) {
+  const sourceVariables = useMemo(() => {
+    try {
+      return stringifyDocumentJson(
+        record(parseDocumentJson(endpoint.sourceDefinition || "{}"))
+          .variables || {},
+      );
+    } catch {
+      return "{}";
+    }
+  }, [endpoint.sourceDefinition]);
   // Basic info
   const [name, setName] = useState(endpoint.name);
   const [method, setMethod] = useState(endpoint.method);
@@ -70,6 +87,10 @@ export function EndpointDetail({
     endpoint.requestBody?.example || "",
   );
 
+  const [bodyContent, setBodyContent] = useState(
+    endpoint.requestBody?.content || "{}",
+  );
+
   // Responses
   const [responses, setResponses] = useState<EndpointResponse[]>(
     endpoint.responses ?? [],
@@ -84,7 +105,8 @@ export function EndpointDetail({
     basic: { name, method, path, description },
     params: {
       parameters: params.map(
-        ({ name, type, required, location, description, example }) => ({
+        ({ name, type, required, location, description, example, schema }) => ({
+          schema,
           name,
           type,
           required,
@@ -96,6 +118,12 @@ export function EndpointDetail({
     },
     body: {
       requestBody: {
+        content: mergeMedia(
+          bodyContent,
+          bodyContentType,
+          bodySchema,
+          bodyExample,
+        ),
         contentType: bodyContentType,
         schema: bodySchema,
         example: bodyExample,
@@ -103,8 +131,16 @@ export function EndpointDetail({
     },
     responses: {
       responses: responses.map(
-        ({ statusCode, description, contentType, example, schema }) => ({
+        ({
           statusCode,
+          statusKey,
+          description,
+          contentType,
+          example,
+          schema,
+        }) => ({
+          statusCode,
+          statusKey,
           description,
           contentType,
           example,
@@ -169,6 +205,14 @@ export function EndpointDetail({
       setSaveNotice("请填写接口路径");
       return;
     }
+    if (section === "body") {
+      try {
+        parseDocumentJson(bodySchema || "{}");
+      } catch {
+        setSaveNotice("请先修正请求体 Schema 的 JSON 格式");
+        return;
+      }
+    }
     const submitted = drafts[section];
     savingRef.current = true;
     setSaving(true);
@@ -208,7 +252,23 @@ export function EndpointDetail({
   const updateParam = useCallback(
     (index: number, field: keyof EndpointParam, value: string | boolean) => {
       setParams((prev) =>
-        prev.map((p, i) => (i === index ? { ...p, [field]: value } : p)),
+        prev.map((p, i) => {
+          if (i !== index) return p;
+          if (field === "type") {
+            let schema = record(undefined);
+            try {
+              schema = record(parseDocumentJson(p.schema || "{}"));
+            } catch {
+              return p;
+            }
+            return {
+              ...p,
+              type: String(value),
+              schema: stringifyDocumentJson({ ...schema, type: value }),
+            };
+          }
+          return { ...p, [field]: value };
+        }),
       );
     },
     [],
@@ -249,7 +309,23 @@ export function EndpointDetail({
   const updateResponse = useCallback(
     (index: number, field: keyof EndpointResponse, value: string | number) => {
       setResponses((prev) =>
-        prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)),
+        prev.map((r, i) =>
+          i === index
+            ? {
+                ...r,
+                [field]: value,
+                ...(field === "statusCode"
+                  ? { statusKey: "" }
+                  : field === "statusKey"
+                    ? {
+                        statusCode: /^\d{3}$/.test(String(value))
+                          ? Number(value)
+                          : 0,
+                      }
+                    : {}),
+              }
+            : r,
+        ),
       );
     },
     [],
@@ -411,9 +487,24 @@ export function EndpointDetail({
             <TabsTrigger value="params">请求参数</TabsTrigger>
             <TabsTrigger value="body">请求体</TabsTrigger>
             <TabsTrigger value="responses">响应</TabsTrigger>
+            {endpoint.sourceImportId && (
+              <TabsTrigger value="source">导入原文</TabsTrigger>
+            )}
             <TabsTrigger value="test">在线测试</TabsTrigger>
           </TabsList>
 
+          {endpoint.sourceImportId && (
+            <TabsContent value="source">
+              <p className="mb-3 text-xs text-zinc-500">
+                导入时的完整接口定义，包含引用、认证与扩展字段。基本表单修改会合并到导出结果。
+              </p>
+              <JsonWorkbench
+                label="导入接口原文"
+                value={endpoint.sourceDefinition || "{}"}
+                readOnly
+              />
+            </TabsContent>
+          )}
           <TabsContent value="basic">
             <BasicInfoPanel
               method={method}
@@ -446,7 +537,26 @@ export function EndpointDetail({
               contentType={bodyContentType}
               schema={bodySchema}
               example={bodyExample}
-              onContentTypeChange={setBodyContentType}
+              contentTypes={Object.keys(JSON.parse(bodyContent))}
+              onContentTypeChange={(type) => {
+                try {
+                  parseDocumentJson(bodySchema || "{}");
+                } catch {
+                  setSaveNotice("请先修正当前 Schema，再切换格式");
+                  return;
+                }
+                const content = mergeMedia(
+                  bodyContent,
+                  bodyContentType,
+                  bodySchema,
+                  bodyExample,
+                );
+                const media = readMedia(content, type);
+                setBodyContent(content);
+                setBodyContentType(type);
+                setBodySchema(media.schema);
+                setBodyExample(media.example);
+              }}
               onSchemaChange={setBodySchema}
               onExampleChange={setBodyExample}
               onSave={() => saveSection("body")}
@@ -480,6 +590,9 @@ export function EndpointDetail({
                 endpointId={endpoint.id}
                 environments={environments}
                 endpointHeaders={endpoint.headers}
+                endpointAuth={endpoint.auth}
+                endpointVariables={sourceVariables}
+                endpointServerUrl={endpoint.serverUrl}
                 method={method}
                 path={path}
                 projectBaseUrl={projectBaseUrl}

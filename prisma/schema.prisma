@@ -32,11 +32,11 @@ model Organization {
 }
 
 model OrganizationMember {
-  id             String       @id @default(cuid())
+  id             String   @id @default(cuid())
   userId         String
   organizationId String
-  role           String       @default("member") // "owner" | "admin" | "member"
-  createdAt      DateTime     @default(now())
+  role           String   @default("member") // "owner" | "admin" | "member"
+  createdAt      DateTime @default(now())
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -55,13 +55,14 @@ model Project {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy      User            @relation(fields: [createdById], references: [id])
-  folders        Folder[]
-  endpoints      ApiEndpoint[]
-  globalHeaders  GlobalHeader[]
-  globalParams   GlobalParam[]
-  environments   Environment[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy            User                  @relation(fields: [createdById], references: [id])
+  folders              Folder[]
+  endpoints            ApiEndpoint[]
+  globalHeaders        GlobalHeader[]
+  globalParams         GlobalParam[]
+  environments         Environment[]
+  specificationImports SpecificationImport[]
 }
 
 model Folder {
@@ -79,103 +80,130 @@ model Folder {
   endpoints ApiEndpoint[]
 }
 
-model ApiEndpoint {
-  id          String   @id @default(cuid())
-  name        String
-  method      String   @default("GET") // GET, POST, PUT, PATCH, DELETE
-  path        String
-  description String   @default("")
-  projectId   String
-  folderId    String?
-  createdById String
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+model SpecificationImport {
+  id        String        @id @default(cuid())
+  projectId String
+  name      String
+  format    String
+  version   String
+  document  String
+  pointers  String        @default("[]")
+  createdAt DateTime      @default(now())
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  endpoints ApiEndpoint[]
 
-  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  folder      Folder?           @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  createdBy   User              @relation(fields: [createdById], references: [id])
+  @@index([projectId])
+}
+
+model ApiEndpoint {
+  sourceImportId   String?
+  sourcePointer    String               @default("")
+  sourceDefinition String               @default("{}")
+  sourceBaseline   String               @default("{}")
+  serverUrl        String               @default("")
+  auth             String               @default("{}")
+  sourceImport     SpecificationImport? @relation(fields: [sourceImportId], references: [id], onDelete: SetNull)
+  id               String               @id @default(cuid())
+  name             String
+  method           String               @default("GET") // GET, POST, PUT, PATCH, DELETE
+  path             String
+  description      String               @default("")
+  projectId        String
+  folderId         String?
+  createdById      String
+  order            Int                  @default(0)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  project     Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  folder      Folder?            @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  createdBy   User               @relation(fields: [createdById], references: [id])
   parameters  EndpointParam[]
   headers     EndpointHeader[]
   requestBody RequestBody?
   responses   EndpointResponse[]
+
+  @@index([sourceImportId])
 }
 
 model EndpointParam {
-  id         String @id @default(cuid())
-  endpointId String
-  name       String
-  type       String @default("string") // string, number, boolean, array, object
-  required   Boolean @default(false)
-  description String @default("")
-  example    String @default("")
-  location   String @default("query") // query, path
+  schema      String  @default("{}")
+  id          String  @id @default(cuid())
+  endpointId  String
+  name        String
+  type        String  @default("string") // string, number, boolean, array, object
+  required    Boolean @default(false)
+  description String  @default("")
+  example     String  @default("")
+  location    String  @default("query") // query, path
 
   endpoint ApiEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 }
 
 model EndpointHeader {
-  id         String @id @default(cuid())
-  endpointId String
-  key        String
-  value      String @default("")
-  description String @default("")
-  required   Boolean @default(false)
+  id          String  @id @default(cuid())
+  endpointId  String
+  key         String
+  value       String  @default("")
+  description String  @default("")
+  required    Boolean @default(false)
 
   endpoint ApiEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 }
 
 model RequestBody {
-  id         String @id @default(cuid())
-  endpointId String @unique
+  content     String @default("{}")
+  id          String @id @default(cuid())
+  endpointId  String @unique
   contentType String @default("application/json")
-  schema     String @default("{}") // JSON schema
-  example    String @default("{}") // JSON example
+  schema      String @default("{}") // JSON schema
+  example     String @default("{}") // JSON example
 
   endpoint ApiEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 }
 
 model EndpointResponse {
-  id         String @id @default(cuid())
-  endpointId String
-  statusCode Int
+  statusKey   String @default("")
+  id          String @id @default(cuid())
+  endpointId  String
+  statusCode  Int
   description String @default("")
   contentType String @default("application/json")
-  schema     String @default("{}") // JSON schema
-  example    String @default("{}") // JSON example
+  schema      String @default("{}") // JSON schema
+  example     String @default("{}") // JSON example
 
   endpoint ApiEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 }
 
 model GlobalHeader {
-  id        String @id @default(cuid())
-  projectId String
-  key       String
-  value     String @default("")
-  description String @default("")
-  enabled   Boolean @default(true)
+  id          String  @id @default(cuid())
+  projectId   String
+  key         String
+  value       String  @default("")
+  description String  @default("")
+  enabled     Boolean @default(true)
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model GlobalParam {
-  id        String @id @default(cuid())
-  projectId String
-  name      String
-  value     String @default("")
-  description String @default("")
-  location  String @default("query") // query, header
-  enabled   Boolean @default(true)
+  id          String  @id @default(cuid())
+  projectId   String
+  name        String
+  value       String  @default("")
+  description String  @default("")
+  location    String  @default("query") // query, header
+  enabled     Boolean @default(true)
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }
 
 model Environment {
-  id        String @id @default(cuid())
+  id        String  @id @default(cuid())
   projectId String
   name      String // "development", "staging", "production"
   baseUrl   String
-  variables String @default("{}") // JSON key-value pairs
+  variables String  @default("{}") // JSON key-value pairs
   isDefault Boolean @default(false)
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)

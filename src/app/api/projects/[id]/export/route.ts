@@ -3,11 +3,12 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getProjectAccess } from "@/lib/permissions";
 import { sanitizeDocumentationProject } from "@/lib/documentation/privacy";
+import { serializeSpecification } from "@/lib/documentation/export";
+
 import {
-  exportOpenApi,
-  exportPostman,
-  serializeSpecification,
-} from "@/lib/documentation/export";
+  exportImportedOpenApi,
+  exportImportedPostman,
+} from "@/lib/specification/export";
 
 export async function GET(
   request: Request,
@@ -55,6 +56,7 @@ export async function GET(
             responses: true,
           },
         },
+        specificationImports: true,
         globalHeaders: true,
         globalParams: true,
         environments: true,
@@ -69,7 +71,9 @@ export async function GET(
       ? data
       : sanitizeDocumentationProject(data);
     const document =
-      kind === "postman" ? exportPostman(source) : exportOpenApi(source);
+      kind === "postman"
+        ? exportImportedPostman(source)
+        : exportImportedOpenApi(source);
     return new Response(
       serializeSpecification(document, syntax as "json" | "yaml"),
       {
