@@ -1,3 +1,9 @@
+import {
+  readPublishedDocument,
+  readDraftDocument,
+} from "@/lib/publications/service";
+import { DocumentError, documentFailure } from "@/lib/documents/http";
+import type { Project } from "@/lib/types";
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -16,7 +22,7 @@ export async function GET(
 ) {
   const { id } = await params;
   const session = await auth();
-  const { project, permissions } = await getProjectAccess(
+  const { project, permissions, membership } = await getProjectAccess(
     id,
     session?.user?.id,
   );
@@ -43,34 +49,42 @@ export async function GET(
       { status: 400 },
     );
   try {
-    const data = await prisma.project.findUnique({
-      where: { id },
-      include: {
-        folders: true,
-        endpoints: {
-          where: { deletedAt: null },
-          orderBy: { order: "asc" },
-          include: {
-            parameters: true,
-            headers: true,
-            requestBody: true,
-            responses: true,
+    let source: Project;
+    if (query.get("view") === "preview") {
+      if (!session?.user) throw new DocumentError("请先登录查看内部预览", 401);
+      source = await readDraftDocument(id, session.user);
+    } else if (!membership)
+      source = await readPublishedDocument(id, session?.user?.id);
+    else {
+      const data = await prisma.project.findUnique({
+        where: { id },
+        include: {
+          folders: true,
+          endpoints: {
+            where: { deletedAt: null },
+            orderBy: { order: "asc" },
+            include: {
+              parameters: true,
+              headers: true,
+              requestBody: true,
+              responses: true,
+            },
           },
+          specificationImports: { where: { active: true } },
+          globalHeaders: true,
+          globalParams: true,
+          environments: true,
         },
-        specificationImports: { where: { active: true } },
-        globalHeaders: true,
-        globalParams: true,
-        environments: true,
-      },
-    });
-    if (!data)
-      return NextResponse.json(
-        { success: false, error: "Project not found" },
-        { status: 404 },
-      );
-    const source = permissions.canReadConfiguration
-      ? data
-      : sanitizeDocumentationProject(data);
+      });
+      if (!data)
+        return NextResponse.json(
+          { success: false, error: "Project not found" },
+          { status: 404 },
+        );
+      source = permissions.canReadConfiguration
+        ? data
+        : sanitizeDocumentationProject(data);
+    }
     const document =
       kind === "postman"
         ? exportImportedPostman(source)
@@ -89,12 +103,6 @@ export async function GET(
       },
     );
   } catch (error) {
-    return NextResponse.json(
-      {
-        success: false,
-        error: error instanceof Error ? error.message : "Export failed",
-      },
-      { status: 400 },
-    );
+    return documentFailure(error);
   }
 }

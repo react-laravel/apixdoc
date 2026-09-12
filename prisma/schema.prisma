@@ -51,16 +51,24 @@ model OrganizationMember {
 }
 
 model Project {
-  layoutVersion  Int      @default(1)
-  id             String   @id @default(cuid())
-  name           String
-  description    String   @default("")
-  isPublic       Boolean  @default(false)
-  baseUrl        String   @default("")
-  organizationId String
-  createdById    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  settingsVersion        Int                       @default(1)
+  publicationVersion     Int                       @default(0)
+  publicationInitialized Boolean                   @default(true)
+  publishedDocumentId    String?
+  publicationSequence    Int                       @default(0)
+  publications           PublishedDocument[]
+  publicationEvents      PublicationEvent[]
+  settingsRevisions      ProjectSettingsRevision[]
+  layoutVersion          Int                       @default(1)
+  id                     String                    @id @default(cuid())
+  name                   String
+  description            String                    @default("")
+  isPublic               Boolean                   @default(false)
+  baseUrl                String                    @default("")
+  organizationId         String
+  createdById            String
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
 
   organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy            User                  @relation(fields: [createdById], references: [id])
@@ -271,4 +279,43 @@ model EndpointRevision {
 
   @@unique([endpointId, version])
   @@index([endpointId, createdAt])
+}
+
+model ProjectSettingsRevision {
+  id        String   @id @default(cuid())
+  projectId String
+  version   Int
+  snapshot  String
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, version])
+}
+
+model PublishedDocument {
+  id          String    @id @default(cuid())
+  projectId   String
+  number      Int
+  title       String
+  note        String    @default("")
+  content     String
+  fingerprint String
+  actorName   String
+  createdAt   DateTime  @default(now())
+  revokedAt   DateTime?
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, number])
+}
+
+model PublicationEvent {
+  id            String   @id @default(cuid())
+  projectId     String
+  publicationId String?
+  action        String
+  actorName     String
+  createdAt     DateTime @default(now())
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
 }

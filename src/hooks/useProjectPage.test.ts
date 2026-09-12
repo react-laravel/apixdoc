@@ -606,7 +606,7 @@ describe("useProjectPage", () => {
     });
 
     await act(async () => {
-      await result.current.handleSaveSettings({ name: "Updated Project" });
+      await result.current.handleSaveSettings({ name: "Updated Project" }, 1);
     });
 
     await act(async () => {
@@ -873,11 +873,11 @@ describe("project editing regressions", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     vi.mocked(fetch).mockRejectedValueOnce(new Error("Save failed"));
     await act(async () => {
-      expect(await result.current.handleSaveSettings({ name: "Unsaved" })).toBe(
-        false,
-      );
+      await expect(
+        result.current.handleSaveSettings({ name: "Unsaved" }, 1),
+      ).rejects.toThrow("Save failed");
     });
     expect(result.current.project?.name).toBe(mockProject.name);
-    expect(result.current.saveError).toBe("Save failed");
+    expect(result.current.saveError).toBeNull();
   });
 });

@@ -1,10 +1,13 @@
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { getProjectAccess } from "@/lib/permissions";
-import { sanitizeDocumentationProject } from "@/lib/documentation/privacy";
+import {
+  readDraftDocument,
+  readPublishedDocument,
+  readStoredPublication,
+} from "@/lib/publications/service";
+import { DocumentError } from "@/lib/documents/http";
 import { DocumentationView } from "@/components/documentation/documentation-view";
-
 export const metadata = {
   title: "API 文档 · ApiX Docs",
   robots: { index: false, follow: false },
@@ -14,46 +17,51 @@ export default async function DocumentationPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ endpoint?: string }>;
+  searchParams: Promise<{
+    endpoint?: string;
+    release?: string;
+    preview?: string;
+    review?: string;
+  }>;
 }) {
   const { id } = await params;
+  const query = await searchParams;
   const session = await auth();
-  const { project, permissions } = await getProjectAccess(
-    id,
-    session?.user?.id,
-  );
-  if (!project) notFound();
-  const { endpoint } = await searchParams;
-  if (!permissions.canRead) {
-    if (!session?.user)
+  try {
+    const data =
+      query.review === "1" && query.release
+        ? session?.user
+          ? await readStoredPublication(id, query.release, session.user)
+          : (() => {
+              throw new DocumentError("请登录", 401);
+            })()
+        : query.preview === "1"
+          ? session?.user
+            ? await readDraftDocument(id, session.user)
+            : (() => {
+                throw new DocumentError("请登录", 401);
+              })()
+          : await readPublishedDocument(id, session?.user?.id, query.release);
+    const access = session?.user
+      ? await getProjectAccess(id, session.user.id)
+      : null;
+    return (
+      <DocumentationView
+        project={data}
+        initialEndpoint={query.endpoint}
+        canOpenWorkspace={!!access?.membership && access.permissions.canRead}
+      />
+    );
+  } catch (error) {
+    if (error instanceof DocumentError && error.status === 401) {
+      const values = new URLSearchParams();
+      for (const key of ["endpoint", "release", "preview", "review"] as const)
+        if (query[key]) values.set(key, query[key]!);
       redirect(
-        `/login?callbackUrl=${encodeURIComponent(`/docs/${id}${endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : ""}`)}`,
+        `/login?callbackUrl=${encodeURIComponent(`/docs/${id}${values.size ? `?${values}` : ""}`)}`,
       );
-    notFound();
+    }
+    if (error instanceof DocumentError) notFound();
+    throw error;
   }
-  const data = await prisma.project.findUnique({
-    where: { id },
-    include: {
-      specificationImports: { where: { active: true } },
-      folders: { orderBy: { order: "asc" } },
-      endpoints: {
-        where: { deletedAt: null },
-        orderBy: { order: "asc" },
-        include: {
-          parameters: true,
-          headers: true,
-          requestBody: true,
-          responses: { orderBy: { statusCode: "asc" } },
-        },
-      },
-    },
-  });
-  if (!data) notFound();
-  return (
-    <DocumentationView
-      project={sanitizeDocumentationProject(data)}
-      initialEndpoint={endpoint}
-      canOpenWorkspace={!!session?.user && permissions.canRead}
-    />
-  );
 }

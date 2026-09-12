@@ -5,7 +5,16 @@ import { auth } from "@/lib/auth";
 import { type ApiResponse } from "@/lib/utils";
 import { getProjectAccess } from "@/lib/permissions";
 import { sanitizeDocumentationProject } from "@/lib/documentation/privacy";
-import { parseProjectSettings } from "@/lib/project-settings";
+import {
+  settingsInclude,
+  saveProjectSettings,
+} from "@/lib/project-settings-service";
+import { readPublishedDocument } from "@/lib/publications/service";
+import {
+  documentBody,
+  documentSuccess,
+  documentFailure,
+} from "@/lib/documents/http";
 
 export async function GET(
   _request: Request,
@@ -15,7 +24,7 @@ export async function GET(
     const session = await auth();
     const { id } = await params;
 
-    const { project, permissions } = await getProjectAccess(
+    const { project, permissions, membership } = await getProjectAccess(
       id,
       session?.user?.id,
     );
@@ -34,35 +43,49 @@ export async function GET(
       );
     }
 
+    if (!membership) {
+      try {
+        return documentSuccess({
+          ...(await readPublishedDocument(id, session?.user?.id)),
+          permissions,
+        });
+      } catch (error) {
+        return documentFailure(error);
+      }
+    }
     const endpointInclude = documentInclude;
 
-    const fullProject = await prisma.project.findUnique({
-      where: { id },
-      include: {
-        folders: {
-          orderBy: { order: "asc" },
+    const fullProject = await prisma.$transaction(
+      (tx) =>
+        tx.project.findUnique({
+          where: { id },
           include: {
+            folders: {
+              orderBy: { order: "asc" },
+              include: {
+                endpoints: {
+                  where: { projectId: id, deletedAt: null },
+                  orderBy: { order: "asc" },
+                  include: endpointInclude,
+                },
+              },
+            },
             endpoints: {
-              where: { projectId: id, deletedAt: null },
+              where: { folderId: null, deletedAt: null },
               orderBy: { order: "asc" },
               include: endpointInclude,
             },
+            specificationImports: { where: { active: true } },
+            globalHeaders: settingsInclude.globalHeaders,
+            globalParams: settingsInclude.globalParams,
+            environments: settingsInclude.environments,
+            createdBy: {
+              select: { id: true, name: true },
+            },
           },
-        },
-        endpoints: {
-          where: { folderId: null, deletedAt: null },
-          orderBy: { order: "asc" },
-          include: endpointInclude,
-        },
-        specificationImports: { where: { active: true } },
-        globalHeaders: true,
-        globalParams: true,
-        environments: true,
-        createdBy: {
-          select: { id: true, name: true },
-        },
-      },
-    });
+        }),
+      { isolationLevel: "RepeatableRead" },
+    );
 
     return NextResponse.json(
       {
@@ -81,7 +104,10 @@ export async function GET(
                   }),
                 ),
               }
-            : sanitizeDocumentationProject(fullProject)),
+            : {
+                ...sanitizeDocumentationProject(fullProject),
+                isDraftPreview: true,
+              }),
           permissions,
         },
       },
@@ -109,10 +135,7 @@ export async function PUT(
     }
 
     const { id } = await params;
-    const { permissions, project: currentProject } = await getProjectAccess(
-      id,
-      session.user.id,
-    );
+    const { permissions } = await getProjectAccess(id, session.user.id);
 
     if (!permissions.canConfigure) {
       return NextResponse.json(
@@ -121,39 +144,17 @@ export async function PUT(
       );
     }
 
-    let data;
     try {
-      const body = await request.json();
-      if (
-        body.isPublic !== undefined &&
-        body.isPublic !== currentProject?.isPublic &&
-        !permissions.canManage
-      )
-        return NextResponse.json(
-          {
-            success: false,
-            error: "Only project managers can change visibility",
-          },
-          { status: 403 },
-        );
-      data = parseProjectSettings(body);
-    } catch (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : "设置格式不正确",
-        },
-        { status: 400 },
+      return documentSuccess(
+        await saveProjectSettings(
+          id,
+          session.user,
+          await documentBody(request),
+        ),
       );
+    } catch (error) {
+      return documentFailure(error);
     }
-
-    const project = await prisma.project.update({
-      where: { id },
-      data,
-      include: { environments: true, globalHeaders: true, globalParams: true },
-    });
-
-    return NextResponse.json({ success: true, data: project });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to update project" },

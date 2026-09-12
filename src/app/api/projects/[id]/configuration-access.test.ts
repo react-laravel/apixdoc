@@ -15,16 +15,20 @@ const environment = vi.hoisted(() => ({
     ]),
 }));
 vi.mock("@/lib/auth", () => ({ auth: async () => ({ user: state.user }) }));
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
+vi.mock("@/lib/prisma", () => {
+  const client = {
     organizationMember: {
-      findFirst: async () => (state.member ? { id: "m", role: "member" } : null),
-      findUnique: async () => (state.member ? { id: "m", role: "member" } : null),
+      findFirst: async () =>
+        state.member ? { id: "m", role: "member" } : null,
+      findUnique: async () =>
+        state.member ? { id: "m", role: "member" } : null,
     },
     project: {
       findUnique: async () => ({
         id: "p",
         isPublic: state.public,
+        publicationInitialized: true,
+        publishedDocumentId: "release",
         organizationId: "o",
         folders: [],
         endpoints: [],
@@ -33,11 +37,49 @@ vi.mock("@/lib/prisma", () => ({
         globalParams: [{ value: "secret" }],
       }),
     },
+    $queryRaw: async () => [{ id: "p" }],
+    publishedDocument: {
+      findFirst: async () => ({
+        id: "release",
+        number: 1,
+        title: "Published",
+        createdAt: new Date(),
+        content: JSON.stringify({
+          id: "p",
+          name: "Published project",
+          description: "",
+          baseUrl: "",
+          isPublic: true,
+          environments: [],
+          globalHeaders: [],
+          globalParams: [],
+          folders: [],
+          endpoints: [],
+        }),
+      }),
+    },
     environment,
     globalHeader: { findMany: vi.fn().mockResolvedValue([]) },
     globalParam: { findMany: vi.fn().mockResolvedValue([]) },
-  },
-}));
+  };
+  return {
+    prisma: {
+      ...client,
+      project: {
+        ...client.project,
+        findUniqueOrThrow: client.project.findUnique,
+      },
+      $transaction: async (fn: (tx: unknown) => unknown) =>
+        fn({
+          ...client,
+          project: {
+            ...client.project,
+            findUniqueOrThrow: client.project.findUnique,
+          },
+        }),
+    },
+  };
+});
 const context = { params: Promise.resolve({ id: "p" }) };
 beforeEach(() => {
   state.member = false;

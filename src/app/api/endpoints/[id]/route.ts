@@ -9,6 +9,7 @@ import {
   documentFailure,
   documentBody,
 } from "@/lib/documents/http";
+import { readPublishedDocument } from "@/lib/publications/service";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -23,20 +24,24 @@ export async function GET(
   try {
     const { id } = await params;
 
-    const endpoint = await prisma.apiEndpoint.findUnique({
-      where: { id },
-      include: {
-        ...documentInclude,
-        project: {
-          select: {
-            id: true,
-            name: true,
-            isPublic: true,
-            organizationId: true,
+    const endpoint = await prisma.$transaction(
+      (tx) =>
+        tx.apiEndpoint.findUnique({
+          where: { id },
+          include: {
+            ...documentInclude,
+            project: {
+              select: {
+                id: true,
+                name: true,
+                isPublic: true,
+                organizationId: true,
+              },
+            },
           },
-        },
-      },
-    });
+        }),
+      { isolationLevel: "RepeatableRead" },
+    );
 
     if (!endpoint) {
       return NextResponse.json(
@@ -46,7 +51,7 @@ export async function GET(
     }
 
     const session = await auth();
-    const { permissions } = await getProjectAccess(
+    const { permissions, membership } = await getProjectAccess(
       endpoint.project.id,
       session?.user?.id,
     );
@@ -55,6 +60,23 @@ export async function GET(
         { success: false, error: "Forbidden" },
         { status: 403 },
       );
+    if (!membership) {
+      try {
+        const published = await readPublishedDocument(
+          endpoint.project.id,
+          session?.user?.id,
+        );
+        const item = published.endpoints.find((item) => item.id === id);
+        return item
+          ? documentSuccess(item)
+          : NextResponse.json(
+              { success: false, error: "接口未发布" },
+              { status: 404 },
+            );
+      } catch (error) {
+        return documentFailure(error);
+      }
+    }
     if (endpoint.deletedAt)
       return NextResponse.json(
         {

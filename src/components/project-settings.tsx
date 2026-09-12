@@ -1,6 +1,12 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { ApiError } from "@/lib/api-fetch";
+import {
+  DocumentConflictDialog,
+  type DocumentConflict,
+} from "@/components/document-conflict";
+import { settingsSnapshot } from "@/lib/settings-model";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -29,7 +35,7 @@ import type {
 
 interface ProjectSettingsProps {
   project: Project;
-  onSave: (data: Partial<Project>) => Promise<boolean>;
+  onSave: (data: Partial<Project>, version: number) => Promise<Project>;
   error?: string | null;
   canPublish?: boolean;
   open: boolean;
@@ -45,6 +51,10 @@ export function ProjectSettings({
   canPublish = true,
 }: ProjectSettingsProps) {
   const [saving, setSaving] = useState(false);
+  const [conflict, setConflict] = useState<DocumentConflict | null>(null);
+  const [localError, setLocalError] = useState("");
+  const [baseVersion] = useState(project.settingsVersion || 1);
+  const initial = useRef(JSON.stringify(settingsSnapshot(project)));
   const savingRef = useRef(false);
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
@@ -60,21 +70,46 @@ export function ProjectSettings({
     project.globalParams,
   );
 
-  const handleSave = async () => {
+  const data = {
+    name,
+    description,
+    baseUrl,
+    isPublic,
+    environments,
+    globalHeaders,
+    globalParams,
+  };
+  const dirty = initial.current !== JSON.stringify(settingsSnapshot(data));
+  const close = (next: boolean) => {
+    if (
+      !savingRef.current &&
+      (next || !dirty || window.confirm("设置有未保存修改，确定放弃吗？"))
+    )
+      onOpenChange(next);
+  };
+  const handleSave = async (
+    replacement?: Record<string, unknown>,
+    version = baseVersion,
+  ) => {
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
+    setLocalError("");
     try {
-      const success = await onSave({
-        name,
-        description,
-        baseUrl,
-        isPublic,
-        environments,
-        globalHeaders,
-        globalParams,
-      });
-      if (success) onOpenChange(false);
+      const submitted: Partial<Project> = { ...(replacement || data) };
+      if (!canPublish) delete submitted.isPublic;
+      await onSave(submitted, version);
+      setConflict(null);
+      onOpenChange(false);
+    } catch (issue) {
+      if (
+        issue instanceof ApiError &&
+        issue.code === "PROJECT_SETTINGS_CONFLICT"
+      )
+        setConflict(issue.data as DocumentConflict);
+      setLocalError(
+        issue instanceof Error ? issue.message : "设置保存失败，修改已保留",
+      );
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -151,289 +186,320 @@ export function ProjectSettings({
   };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => !savingRef.current && onOpenChange(next)}
-    >
-      <DialogContent
-        aria-describedby={undefined}
-        className="max-w-2xl max-h-[85dvh] overflow-y-auto"
-      >
-        <DialogHeader>
-          <DialogTitle>项目设置</DialogTitle>
-        </DialogHeader>
+    <>
+      {conflict && (
+        <DocumentConflictDialog
+          key={conflict.version}
+          conflict={conflict}
+          saving={saving}
+          onClose={() => setConflict(null)}
+          onResolve={handleSave}
+        />
+      )}
+      <Dialog open={open && !conflict} onOpenChange={close}>
+        <DialogContent
+          aria-describedby={undefined}
+          className="max-w-2xl max-h-[85dvh] overflow-y-auto"
+        >
+          <DialogHeader>
+            <DialogTitle>项目设置</DialogTitle>
+            <p className="text-xs text-zinc-500">
+              基于配置 v{baseVersion} 编辑；未保存的修改会保留在此窗口。
+            </p>
+          </DialogHeader>
 
-        <fieldset disabled={saving} className="min-w-0">
-          <Tabs defaultValue="basic">
-            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
-              <TabsTrigger value="basic">基本信息</TabsTrigger>
-              <TabsTrigger value="environments">环境</TabsTrigger>
-              <TabsTrigger value="headers">全局请求头</TabsTrigger>
-              <TabsTrigger value="params">全局参数</TabsTrigger>
-            </TabsList>
+          <fieldset disabled={saving} className="min-w-0">
+            <Tabs defaultValue="basic">
+              <TabsList className="grid h-auto w-full grid-cols-2 gap-1 sm:grid-cols-4">
+                <TabsTrigger value="basic">基本信息</TabsTrigger>
+                <TabsTrigger value="environments">环境</TabsTrigger>
+                <TabsTrigger value="headers">全局请求头</TabsTrigger>
+                <TabsTrigger value="params">全局参数</TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="basic" className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  项目名称
-                </label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">描述</label>
-                <Textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={3}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">
-                  基础 URL
-                </label>
-                <Input
-                  value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
-                  placeholder="https://api.example.com"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-medium">可见性</label>
-                <Select
-                  disabled={!canPublish}
-                  value={isPublic ? "public" : "private"}
-                  onValueChange={(v) => setIsPublic(v === "public")}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="public">公开</SelectItem>
-                    <SelectItem value="private">私有</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="environments" className="space-y-4">
-              {environments.map((env, i) => (
-                <div
-                  key={i}
-                  className="space-y-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
-                >
-                  <div className="flex items-center gap-2">
-                    <Input
-                      aria-label={`环境名称 ${i + 1}`}
-                      placeholder="环境名称"
-                      value={env.name}
-                      onChange={(e) =>
-                        updateEnvironment(i, "name", e.target.value)
-                      }
-                      className="flex-1"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeEnvironment(i)}
-                    >
-                      删除
-                    </Button>
-                  </div>
-                  <Input
-                    aria-label={`环境地址 ${i + 1}`}
-                    placeholder="基础 URL 或 {{base_url}}"
-                    value={env.baseUrl}
-                    onChange={(e) =>
-                      updateEnvironment(i, "baseUrl", e.target.value)
-                    }
-                  />
-                  <label className="flex items-center gap-2 text-xs text-zinc-500">
-                    <input
-                      type="checkbox"
-                      checked={!!env.isDefault}
-                      onChange={(event) =>
-                        setEnvironments((previous) =>
-                          previous.map((item, index) => ({
-                            ...item,
-                            isDefault: index === i && event.target.checked,
-                          })),
-                        )
-                      }
-                    />
-                    默认调试环境
+              <TabsContent value="basic" className="space-y-4">
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    项目名称
                   </label>
-                  <JsonWorkbench
-                    label={`${env.name || `环境 ${i + 1}`}变量`}
-                    value={env.variables}
-                    onChange={(value) =>
-                      updateEnvironment(i, "variables", value)
-                    }
-                    disabled={saving}
-                    filename="environment-variables.json"
+                  <Input
+                    aria-label="项目名称"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
                   />
-                  <p className="text-xs text-zinc-500">
-                    使用 JSON 对象配置变量，在请求中通过 {"{{变量名}}"}{" "}
-                    引用。变量会与项目成员共享。
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">描述</label>
+                  <Textarea
+                    aria-label="项目描述"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    基础 URL
+                  </label>
+                  <Input
+                    aria-label="基础 URL"
+                    value={baseUrl}
+                    onChange={(e) => setBaseUrl(e.target.value)}
+                    placeholder="https://api.example.com"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium">
+                    文档访问范围
+                  </label>
+                  <Select
+                    disabled={!canPublish}
+                    value={isPublic ? "public" : "private"}
+                    onValueChange={(v) => setIsPublic(v === "public")}
+                  >
+                    <SelectTrigger aria-label="文档访问范围">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="public">
+                        公开（发布后可匿名访问）
+                      </SelectItem>
+                      <SelectItem value="private">仅团队成员</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-2 text-xs text-zinc-500">
+                    访问范围立即生效；对外内容仍以发布版本为准。
                   </p>
                 </div>
-              ))}
-              <Button variant="outline" size="sm" onClick={addEnvironment}>
-                添加环境
-              </Button>
-            </TabsContent>
+              </TabsContent>
 
-            <TabsContent value="headers" className="space-y-3">
-              {globalHeaders.map((h, i) => (
-                <div
-                  key={i}
-                  className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
-                >
-                  <div className="flex-1 space-y-2">
-                    <div className="flex gap-2">
+              <TabsContent value="environments" className="space-y-4">
+                {environments.map((env, i) => (
+                  <div
+                    key={i}
+                    className="space-y-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+                  >
+                    <div className="flex items-center gap-2">
                       <Input
-                        placeholder="Key"
-                        value={h.key}
-                        onChange={(e) => updateHeader(i, "key", e.target.value)}
-                      />
-                      <Input
-                        placeholder="Value"
-                        value={h.value}
+                        aria-label={`环境名称 ${i + 1}`}
+                        placeholder="环境名称"
+                        value={env.name}
                         onChange={(e) =>
-                          updateHeader(i, "value", e.target.value)
-                        }
-                      />
-                    </div>
-                    <Input
-                      placeholder="描述"
-                      value={h.description}
-                      onChange={(e) =>
-                        updateHeader(i, "description", e.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col items-center gap-1 pt-1">
-                    <label className="flex items-center gap-1 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={h.enabled}
-                        onChange={(e) =>
-                          updateHeader(i, "enabled", e.target.checked)
-                        }
-                        className="rounded"
-                      />
-                      启用
-                    </label>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeHeader(i)}
-                    >
-                      删除
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              <Button variant="outline" size="sm" onClick={addHeader}>
-                添加请求头
-              </Button>
-            </TabsContent>
-
-            <TabsContent value="params" className="space-y-3">
-              {globalParams.map((p, i) => (
-                <div
-                  key={i}
-                  className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
-                >
-                  <div className="flex-1 space-y-2">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="参数名"
-                        value={p.name}
-                        onChange={(e) => updateParam(i, "name", e.target.value)}
-                      />
-                      <Input
-                        placeholder="值"
-                        value={p.value}
-                        onChange={(e) =>
-                          updateParam(i, "value", e.target.value)
-                        }
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <Select
-                        value={p.location}
-                        onValueChange={(v) => updateParam(i, "location", v)}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="query">Query</SelectItem>
-                          <SelectItem value="header">Header</SelectItem>
-                          <SelectItem value="path">Path</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Input
-                        placeholder="描述"
-                        value={p.description}
-                        onChange={(e) =>
-                          updateParam(i, "description", e.target.value)
+                          updateEnvironment(i, "name", e.target.value)
                         }
                         className="flex-1"
                       />
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeEnvironment(i)}
+                      >
+                        删除
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex flex-col items-center gap-1 pt-1">
-                    <label className="flex items-center gap-1 text-xs">
+                    <Input
+                      aria-label={`环境地址 ${i + 1}`}
+                      placeholder="基础 URL 或 {{base_url}}"
+                      value={env.baseUrl}
+                      onChange={(e) =>
+                        updateEnvironment(i, "baseUrl", e.target.value)
+                      }
+                    />
+                    <label className="flex items-center gap-2 text-xs text-zinc-500">
                       <input
                         type="checkbox"
-                        checked={p.enabled}
-                        onChange={(e) =>
-                          updateParam(i, "enabled", e.target.checked)
+                        checked={!!env.isDefault}
+                        onChange={(event) =>
+                          setEnvironments((previous) =>
+                            previous.map((item, index) => ({
+                              ...item,
+                              isDefault: index === i && event.target.checked,
+                            })),
+                          )
                         }
-                        className="rounded"
                       />
-                      启用
+                      默认调试环境
                     </label>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeParam(i)}
-                    >
-                      删除
-                    </Button>
+                    <JsonWorkbench
+                      label={`${env.name || `环境 ${i + 1}`}变量`}
+                      value={env.variables}
+                      onChange={(value) =>
+                        updateEnvironment(i, "variables", value)
+                      }
+                      disabled={saving}
+                      filename="environment-variables.json"
+                    />
+                    <p className="text-xs text-zinc-500">
+                      使用 JSON 对象配置变量，在请求中通过 {"{{变量名}}"}{" "}
+                      引用。变量会与项目成员共享。
+                    </p>
                   </div>
-                </div>
-              ))}
-              <Button variant="outline" size="sm" onClick={addParam}>
-                添加参数
-              </Button>
-            </TabsContent>
-          </Tabs>
-        </fieldset>
+                ))}
+                <Button variant="outline" size="sm" onClick={addEnvironment}>
+                  添加环境
+                </Button>
+              </TabsContent>
 
-        {error && (
-          <p
-            role="alert"
-            className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
-          >
-            {error}
-          </p>
-        )}
+              <TabsContent value="headers" className="space-y-3">
+                {globalHeaders.map((h, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+                  >
+                    <div className="flex-1 space-y-2">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Key"
+                          value={h.key}
+                          onChange={(e) =>
+                            updateHeader(i, "key", e.target.value)
+                          }
+                        />
+                        <Input
+                          placeholder="Value"
+                          value={h.value}
+                          onChange={(e) =>
+                            updateHeader(i, "value", e.target.value)
+                          }
+                        />
+                      </div>
+                      <Input
+                        placeholder="描述"
+                        value={h.description}
+                        onChange={(e) =>
+                          updateHeader(i, "description", e.target.value)
+                        }
+                      />
+                    </div>
+                    <div className="flex flex-col items-center gap-1 pt-1">
+                      <label className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={h.enabled}
+                          onChange={(e) =>
+                            updateHeader(i, "enabled", e.target.checked)
+                          }
+                          className="rounded"
+                        />
+                        启用
+                      </label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeHeader(i)}
+                      >
+                        删除
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={addHeader}>
+                  添加请求头
+                </Button>
+              </TabsContent>
 
-        <DialogFooter>
-          <Button
-            disabled={saving}
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-          >
-            取消
-          </Button>
-          <Button disabled={saving || !name.trim()} onClick={handleSave}>
-            {saving ? "保存中…" : "保存设置"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+              <TabsContent value="params" className="space-y-3">
+                {globalParams.map((p, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+                  >
+                    <div className="flex-1 space-y-2">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="参数名"
+                          value={p.name}
+                          onChange={(e) =>
+                            updateParam(i, "name", e.target.value)
+                          }
+                        />
+                        <Input
+                          placeholder="值"
+                          value={p.value}
+                          onChange={(e) =>
+                            updateParam(i, "value", e.target.value)
+                          }
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <Select
+                          value={p.location}
+                          onValueChange={(v) => updateParam(i, "location", v)}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="query">Query</SelectItem>
+                            <SelectItem value="header">Header</SelectItem>
+                            <SelectItem value="path">Path</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          placeholder="描述"
+                          value={p.description}
+                          onChange={(e) =>
+                            updateParam(i, "description", e.target.value)
+                          }
+                          className="flex-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-center gap-1 pt-1">
+                      <label className="flex items-center gap-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={p.enabled}
+                          onChange={(e) =>
+                            updateParam(i, "enabled", e.target.checked)
+                          }
+                          className="rounded"
+                        />
+                        启用
+                      </label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeParam(i)}
+                      >
+                        删除
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={addParam}>
+                  添加参数
+                </Button>
+              </TabsContent>
+            </Tabs>
+          </fieldset>
+
+          {(localError || error) && (
+            <p
+              role="alert"
+              className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
+            >
+              {localError || error}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              disabled={saving}
+              variant="outline"
+              onClick={() => close(false)}
+            >
+              取消
+            </Button>
+            <Button
+              disabled={saving || !name.trim()}
+              onClick={() => handleSave()}
+            >
+              {saving ? "保存中…" : "保存设置"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

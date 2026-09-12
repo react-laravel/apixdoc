@@ -14,6 +14,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EndpointSidebar } from "@/components/endpoint-sidebar";
 import { DocumentationView } from "@/components/documentation/documentation-view";
+import { ProjectPublications } from "@/components/project-publications";
 import { ProjectRecycleBin } from "@/components/project-recycle-bin";
 import { ProjectTransfer } from "@/components/project-transfer";
 import { EndpointDetail } from "@/components/endpoint-detail";
@@ -137,6 +138,16 @@ function ProjectWorkspace() {
           aria-label="项目操作"
           className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0"
         >
+          <ProjectPublications
+            project={project}
+            beforePublish={() =>
+              !hasDraft.current ||
+              window.confirm(
+                "当前接口有未保存修改，发布只包含服务器上已保存的内容。继续检查发布吗？",
+              )
+            }
+            onChanged={fetchProject}
+          />
           <ProjectRecycleBin
             projectId={project.id}
             beforeRestore={canLeave}
@@ -156,11 +167,11 @@ function ProjectWorkspace() {
             }}
           />
           <Link
-            href={`/docs/${project.id}`}
+            href={`/docs/${project.id}?preview=1`}
             target="_blank"
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
-            文档预览
+            内部预览
           </Link>
           {project.permissions?.canConfigure !== false && (
             <Button

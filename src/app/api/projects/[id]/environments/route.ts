@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { canConfigureProject } from "@/lib/permissions";
 import { canReadProjectConfiguration } from "@/lib/project-membership";
-import { parseProjectSettings } from "@/lib/project-settings";
+import { saveProjectSettings } from "@/lib/project-settings-service";
+import {
+  documentBody,
+  documentSuccess,
+  documentFailure,
+} from "@/lib/documents/http";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
@@ -26,12 +31,32 @@ export async function GET(
         { status: 403 },
       );
 
-    const environments = await prisma.environment.findMany({
-      where: { projectId: id },
-      orderBy: { name: "asc" },
-    });
-
-    return NextResponse.json({ success: true, data: environments });
+    const { version, environments } = await prisma.$transaction(
+      async (tx) => {
+        const version =
+          (
+            await tx.project.findUnique({
+              where: { id },
+              select: { settingsVersion: true },
+            })
+          )?.settingsVersion || 1;
+        const environments = await tx.environment.findMany({
+          where: { projectId: id },
+          orderBy: { name: "asc" },
+        });
+        return { version, environments };
+      },
+      { isolationLevel: "RepeatableRead" },
+    );
+    return NextResponse.json(
+      { success: true, settingsVersion: version, data: environments },
+      {
+        headers: {
+          "Cache-Control": "private, no-store",
+          "X-Settings-Version": String(version),
+        },
+      },
+    );
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch environments" },
@@ -79,34 +104,17 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
-    const { environments } = body;
-
-    if (!Array.isArray(environments)) {
-      return NextResponse.json(
-        { success: false, error: "environments must be an array" },
-        { status: 400 },
-      );
-    }
-
-    let data;
     try {
-      data = parseProjectSettings({ environments });
-    } catch (error) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : "环境配置不正确",
-        },
-        { status: 400 },
+      const body = await documentBody(request);
+      return documentSuccess(
+        await saveProjectSettings(id, session.user, {
+          version: body.version,
+          environments: body.environments,
+        }),
       );
+    } catch (error) {
+      return documentFailure(error);
     }
-    const updated = await prisma.project.update({
-      where: { id },
-      data,
-      include: { environments: { orderBy: { name: "asc" } } },
-    });
-    return NextResponse.json({ success: true, data: updated.environments });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to update environments" },

@@ -41,6 +41,10 @@ vi.mock("@/lib/prisma", () => {
   const project = {
     id: "p",
     layoutVersion: 1,
+    settingsVersion: 1,
+    name: "Project",
+    description: "",
+    baseUrl: "",
     organizationId: "org",
     isPublic: false,
     folders: [],
@@ -57,7 +61,11 @@ vi.mock("@/lib/prisma", () => {
     createMany: write,
   };
   const client = {
-    project: { ...model, findUnique: async () => project },
+    project: {
+      ...model,
+      findUnique: async () => project,
+      findUniqueOrThrow: async () => project,
+    },
     apiEndpoint: {
       ...model,
       findUnique: async () => ({
@@ -97,6 +105,11 @@ vi.mock("@/lib/prisma", () => {
     globalHeader: model,
     globalParam: model,
     $queryRaw: async () => [{ id: "p" }],
+    projectSettingsRevision: {
+      upsert: vi.fn(),
+      findMany: async () => [],
+      deleteMany: vi.fn(),
+    },
     endpointRevision: {
       findUnique: async () => null,
       create: vi.fn(),
@@ -175,7 +188,10 @@ describe("read-only project members", () => {
         await updateProject(
           new Request("https://app.test", {
             method: "PUT",
-            body: JSON.stringify({ baseUrl: "https://api.example.com" }),
+            body: JSON.stringify({
+              baseUrl: "https://api.example.com",
+              version: 1,
+            }),
           }),
           context,
         )
@@ -187,7 +203,7 @@ describe("read-only project members", () => {
         await updateProject(
           new Request("https://app.test", {
             method: "PUT",
-            body: JSON.stringify({ isPublic: true }),
+            body: JSON.stringify({ isPublic: true, version: 1 }),
           }),
           context,
         )
@@ -210,14 +226,16 @@ describe("read-only project members", () => {
         await updateProject(
           new Request("https://app.test", {
             method: "PUT",
-            body: JSON.stringify({ isPublic: true }),
+            body: JSON.stringify({ isPublic: true, version: 1 }),
           }),
           context,
         )
       ).status,
     ).toBe(200);
     expect(write).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { isPublic: true } }),
+      expect.objectContaining({
+        data: expect.objectContaining({ isPublic: true }),
+      }),
     );
   });
   it("rejects moving endpoints to folders in another project", async () => {

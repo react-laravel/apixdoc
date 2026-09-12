@@ -1,3 +1,4 @@
+import { ensurePublicationBaseline } from "@/lib/publications/storage";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canEditContent } from "@/lib/permissions";
@@ -23,12 +24,8 @@ export type DocumentActor = {
   email?: string | null;
 };
 export type DocumentTx = Prisma.TransactionClient;
-export const documentInclude = {
-  parameters: { orderBy: [{ order: "asc" as const }, { id: "asc" as const }] },
-  headers: { orderBy: [{ order: "asc" as const }, { id: "asc" as const }] },
-  requestBody: true,
-  responses: { orderBy: [{ order: "asc" as const }, { id: "asc" as const }] },
-};
+import { documentInclude } from "./include";
+export { documentInclude } from "./include";
 export type StoredEndpoint = Prisma.ApiEndpointGetPayload<{
   include: typeof documentInclude;
 }>;
@@ -53,7 +50,7 @@ export async function lockDocumentProject(
   });
   if (!canEditContent(member?.role))
     throw new DocumentError("无权编辑或查看此项目的历史内容", 403);
-  return project;
+  return ensurePublicationBaseline(tx, project);
 }
 export async function authorizedEndpoint(
   tx: DocumentTx,

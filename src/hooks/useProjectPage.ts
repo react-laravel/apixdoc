@@ -380,26 +380,17 @@ export function useProjectPage() {
   );
 
   const handleSaveSettings = useCallback(
-    async (data: Partial<Project>) => {
-      if (!project) return false;
-
+    async (data: Partial<Project>, version: number) => {
+      if (!project) throw new Error("项目尚未加载");
       setSaveError(null);
-      try {
-        const updated = await apiFetch<Partial<Project>>(
-          `/api/projects/${project.id}`,
-          {
-            method: "PUT",
-            body: JSON.stringify(data),
-          },
-        );
-        setProject((prev) => (prev ? { ...prev, ...updated } : prev));
-        return true;
-      } catch (error) {
-        setSaveError(
-          error instanceof Error ? error.message : "保存项目设置失败",
-        );
-        return false;
-      }
+      const updated = await apiFetch<Project>(`/api/projects/${project.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...data, version }),
+      });
+      setProject((previous) =>
+        previous?.id === project.id ? { ...previous, ...updated } : previous,
+      );
+      return updated;
     },
     [project],
   );

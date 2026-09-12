@@ -73,6 +73,19 @@ export interface EndpointResponse {
 }
 
 export interface Project {
+  settingsVersion?: number;
+  settingsMerged?: boolean;
+  publicationVersion?: number;
+  publishedDocumentId?: string | null;
+  publication?: {
+    id: string;
+    number: number;
+    title: string;
+    createdAt: string;
+  };
+  isDraftPreview?: boolean;
+  isPublicationPreview?: boolean;
+  publicationRevoked?: boolean;
   layoutVersion?: number;
   specificationImports?: import("@/lib/specification/types").SpecificationSource[];
   documentationVersion?: string;

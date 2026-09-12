@@ -1,3 +1,4 @@
+import { readPublishedDocument } from "@/lib/publications/service";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
@@ -46,6 +47,35 @@ export async function GET(
       orderBy: { createdAt: "desc" },
     });
 
+    if (!isMember) {
+      const published = [];
+      for (const project of projects) {
+        try {
+          const document = await readPublishedDocument(
+            project.id,
+            session?.user?.id,
+          );
+          published.push({
+            id: document.id,
+            name: document.name,
+            description: document.description,
+            baseUrl: document.baseUrl,
+            isPublic: document.isPublic,
+            createdAt: project.createdAt,
+            _count: {
+              endpoints: document.endpoints.length,
+              folders: document.folders.length,
+            },
+          });
+        } catch {
+          /* Unpublished entries are not part of the public catalog. */
+        }
+      }
+      return NextResponse.json(
+        { success: true, data: published },
+        { headers: { "Cache-Control": "private, no-store" } },
+      );
+    }
     return NextResponse.json({ success: true, data: projects });
   } catch {
     return NextResponse.json(

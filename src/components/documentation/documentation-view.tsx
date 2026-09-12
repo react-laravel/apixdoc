@@ -61,6 +61,11 @@ export function DocumentationView({
   const copyLink = async () => {
     try {
       const url = new URL(`/docs/${project.id}`, window.location.origin);
+      if (project.publication)
+        url.searchParams.set("release", project.publication.id);
+      if (project.isPublicationPreview) url.searchParams.set("review", "1");
+      else if (project.isDraftPreview || embedded)
+        url.searchParams.set("preview", "1");
       if (selectedId) url.searchParams.set("endpoint", selectedId);
       await navigator.clipboard.writeText(url.toString());
       setNotice("文档链接已复制");
@@ -81,14 +86,21 @@ export function DocumentationView({
           <h1 className="truncate text-base font-semibold">{project.name}</h1>
           <p className="mt-1 text-xs text-zinc-500">
             API 文档 · {endpoints.length} 个接口
+            {project.publication ? ` · ${project.publication.title}` : ""}
           </p>
         </div>
         <Badge variant="outline">
-          {project.isPublic ? "公开文档" : "团队文档"}
+          {project.isPublicationPreview
+            ? "内部发布记录"
+            : project.isPublic
+              ? "公开文档"
+              : "团队文档"}
         </Badge>
         <Button variant="ghost" size="sm" onClick={copyLink}>
           <Copy className="size-3.5" />
-          复制链接
+          {project.isPublicationPreview || project.isDraftPreview || embedded
+            ? "复制内部链接"
+            : "复制链接"}
         </Button>
         {canOpenWorkspace && !embedded && (
           <Link
@@ -100,6 +112,37 @@ export function DocumentationView({
           </Link>
         )}
       </header>
+      {project.isPublicationPreview && (
+        <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          内部发布记录预览
+          {project.publicationRevoked ? " · 此版本公开链接已撤销" : ""}
+        </p>
+      )}
+      {(project.isDraftPreview || embedded) && (
+        <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          内部预览 · 此处展示工作区内容，尚未发布的修改不会出现在对外文档。
+        </p>
+      )}
+      {project.publication && (
+        <div className="flex shrink-0 flex-wrap gap-3 border-b border-zinc-200 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">
+          <span>
+            发布 #{project.publication.number} ·{" "}
+            {project.publication.createdAt.slice(0, 10)}
+          </span>
+          <a
+            className="text-blue-600"
+            href={`/api/projects/${project.id}/publications/${project.publication.id}/export?format=openapi${project.isPublicationPreview ? "&internal=1" : ""}`}
+          >
+            下载 OpenAPI
+          </a>
+          <a
+            className="text-blue-600"
+            href={`/api/projects/${project.id}/publications/${project.publication.id}/export?format=postman${project.isPublicationPreview ? "&internal=1" : ""}`}
+          >
+            下载 Postman
+          </a>
+        </div>
+      )}
       {notice && (
         <p
           role="status"

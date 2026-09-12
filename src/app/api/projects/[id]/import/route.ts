@@ -7,6 +7,10 @@ import {
   bumpLayout,
 } from "@/lib/documents/service";
 import { DocumentError } from "@/lib/documents/http";
+import {
+  recordSettingsRevision,
+  bumpSettingsVersion,
+} from "@/lib/project-settings-service";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { auth } from "@/lib/auth";
@@ -176,6 +180,7 @@ export async function POST(
         }
         await bumpLayout(tx, id);
         if (body.importEnvironments === true && plan.environments.length) {
+          await recordSettingsRevision(tx, id);
           const names = new Set(project.environments.map((env) => env.name));
           await tx.environment.createMany({
             data: plan.environments.map((env, index) => {
@@ -191,6 +196,7 @@ export async function POST(
               };
             }),
           });
+          await bumpSettingsVersion(tx, id);
         }
         await tx.project.update({
           where: { id },

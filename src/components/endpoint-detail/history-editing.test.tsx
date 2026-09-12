@@ -33,7 +33,11 @@ const initial: EndpointDetailData = {
     content: "{}",
   },
 };
-function Harness({ save }: { save: ReturnType<typeof vi.fn> }) {
+function Harness({
+  save,
+}: {
+  save: (...args: unknown[]) => Promise<EndpointDetailData>;
+}) {
   const [endpoint, setEndpoint] = useState(initial);
   return (
     <EndpointDetail
@@ -72,27 +76,25 @@ describe("versioned document editor", () => {
       });
     render(<Harness save={save} />);
     const user = userEvent.setup();
-    await user.click(screen.getByRole("tab", { name: "请求体", exact: true }));
+    await user.click(screen.getByRole("tab", { name: "请求体" }));
     fireEvent.change(screen.getByRole("textbox", { name: "请求体示例" }), {
       target: { value: '{"id":9007199254740993123}' },
     });
-    await user.click(
-      screen.getByRole("tab", { name: "基本信息", exact: true }),
-    );
+    await user.click(screen.getByRole("tab", { name: "基本信息" }));
     fireEvent.change(screen.getByRole("textbox", { name: "描述" }), {
       target: { value: "mine" },
     });
-    await user.click(screen.getByRole("button", { name: "保存", exact: true }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() =>
       expect(screen.getByRole("textbox", { name: "名称" })).toHaveValue(
         "Remote name",
       ),
     );
-    await user.click(screen.getByRole("tab", { name: "请求体", exact: true }));
+    await user.click(screen.getByRole("tab", { name: "请求体" }));
     expect(screen.getByRole("textbox", { name: "请求体示例" })).toHaveValue(
       '{"id":9007199254740993123}',
     );
-    await user.click(screen.getByRole("button", { name: "保存", exact: true }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
     await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
     expect(save.mock.calls[1][1]).toBe(1);
     expect(save.mock.calls[1][2]).toBe("body");
@@ -132,7 +134,7 @@ describe("versioned document editor", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "描述" }), {
       target: { value: "mine" },
     });
-    await user.click(screen.getByRole("button", { name: "保存", exact: true }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
     await screen.findByRole("dialog");
     expect(screen.getByRole("button", { name: "合并并保存" })).toBeDisabled();
     await user.click(screen.getByLabelText("保留我的修改"));

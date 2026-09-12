@@ -15,6 +15,7 @@ import { chooseConflict, type FieldConflict } from "@/lib/documents/merge";
 import { finishBodyMerge } from "@/lib/documents/body-merge";
 import { SECTION_LABELS, type DocumentSection } from "@/lib/documents/model";
 export interface DocumentConflict {
+  label?: string;
   section: DocumentSection;
   version: number;
   baseAvailable: boolean;
@@ -23,6 +24,11 @@ export interface DocumentConflict {
   proposed: Record<string, unknown>;
 }
 const fieldLabels: Record<string, string> = {
+  baseUrl: "基础 URL",
+  isPublic: "文档访问范围",
+  environments: "环境",
+  globalHeaders: "全局请求头",
+  globalParams: "全局参数",
   name: "名称",
   method: "请求方法",
   path: "路径",
@@ -108,7 +114,9 @@ export function DocumentConflictDialog({
     <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>{SECTION_LABELS[conflict.section]}有冲突</DialogTitle>
+          <DialogTitle>
+            {conflict.label || SECTION_LABELS[conflict.section]}有冲突
+          </DialogTitle>
           <DialogDescription>
             {conflict.baseAvailable
               ? "其他人的修改已更新到版本 " +
