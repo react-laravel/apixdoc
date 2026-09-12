@@ -72,9 +72,9 @@ describe("security", () => {
     it("filters blocked headers", () => {
       const headers = {
         "Content-Type": "application/json",
-        "Authorization": "Bearer token",
-        "Host": "example.com",
-        "Connection": "close",
+        Authorization: "Bearer token",
+        Host: "example.com",
+        Connection: "close",
       };
       const result = sanitizeProxyHeaders(headers);
       // Keys are normalized to lowercase
@@ -112,7 +112,9 @@ describe("security", () => {
 
   describe("validateExternalUrl", () => {
     it("throws for invalid URL", async () => {
-      await expect(validateExternalUrl("not-a-url")).rejects.toThrow("Invalid URL");
+      await expect(validateExternalUrl("not-a-url")).rejects.toThrow(
+        "Invalid URL",
+      );
     });
 
     it("throws for non-http protocols", async () => {
@@ -122,14 +124,16 @@ describe("security", () => {
     });
 
     it("throws for URLs with embedded credentials", async () => {
-      await expect(validateExternalUrl("https://user:pass@example.com")).rejects.toThrow(
-        "URLs with embedded credentials are not allowed",
-      );
+      await expect(
+        validateExternalUrl("https://user:pass@example.com"),
+      ).rejects.toThrow("URLs with embedded credentials are not allowed");
     });
 
     it("throws for empty hostname", async () => {
       // "http://" fails at URL parsing level
-      await expect(validateExternalUrl("http://")).rejects.toThrow("Invalid URL");
+      await expect(validateExternalUrl("http://")).rejects.toThrow(
+        "Invalid URL",
+      );
     });
 
     it("throws for loopback hosts", async () => {
@@ -137,7 +141,9 @@ describe("security", () => {
         "Loopback hosts are not allowed",
       );
       // localhost.test is a valid public TLD, not loopback
-      await expect(validateExternalUrl("http://localhost.test")).resolves.toBeDefined();
+      await expect(
+        validateExternalUrl("http://localhost.test"),
+      ).resolves.toBeDefined();
     });
   });
 
@@ -154,4 +160,14 @@ describe("security", () => {
       expect(PROXY_TIMEOUT_MS).toBe(15000);
     });
   });
+});
+
+it("preserves valid header names without triggering object prototype setters", () => {
+  const headers = JSON.parse('{"__proto__":"literal","X-Test":"ok"}');
+  const sanitized = sanitizeProxyHeaders(headers);
+  expect(Object.prototype.hasOwnProperty.call(sanitized, "__proto__")).toBe(
+    true,
+  );
+  expect(sanitized.__proto__).toBe("literal");
+  expect(sanitized["x-test"]).toBe("ok");
 });

@@ -11,7 +11,10 @@ vi.mock("@/lib/security", () => ({
   sanitizeProxyHeaders: (headers: unknown) => headers,
   validateExternalUrl: async (url: string) => new URL(url),
 }));
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("request proxy lifecycle", () => {
   it("propagates client cancellation to the upstream request", async () => {
@@ -72,3 +75,53 @@ describe("request proxy lifecycle", () => {
     });
   });
 });
+
+it("honors the configured request deadline", async () => {
+  vi.useFakeTimers();
+  const fetchMock = vi.fn(
+    (_url: unknown, options?: RequestInit) =>
+      new Promise<Response>((_, reject) =>
+        options?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("deadline", "AbortError")),
+        ),
+      ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  const pending = POST(
+    new Request("http://localhost/api/proxy", {
+      method: "POST",
+      body: JSON.stringify({
+        url: "https://example.com",
+        method: "GET",
+        timeoutMs: 1000,
+        headers: {},
+      }),
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetchMock).toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1001);
+  const response = await pending;
+  expect(response.status).toBe(504);
+  expect(await response.json()).toMatchObject({ error: "请求超时" });
+});
+
+it.each([0, 999, 60001, "15000"])(
+  "rejects invalid timeout %s before contacting the target",
+  async (timeoutMs) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await POST(
+      new Request("http://localhost/api/proxy", {
+        method: "POST",
+        body: JSON.stringify({
+          url: "https://example.com",
+          method: "GET",
+          timeoutMs,
+        }),
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  },
+);

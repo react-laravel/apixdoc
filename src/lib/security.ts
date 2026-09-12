@@ -68,14 +68,12 @@ export function isHttpRequestMethod(
   );
 }
 
-export function sanitizeProxyHeaders(
-  headers: unknown,
-): Record<string, string> {
+export function sanitizeProxyHeaders(headers: unknown): Record<string, string> {
   if (!headers || typeof headers !== "object" || Array.isArray(headers)) {
     return {};
   }
 
-  const sanitized: Record<string, string> = {};
+  const sanitized: Record<string, string> = Object.create(null);
 
   for (const [key, value] of Object.entries(headers)) {
     if (typeof value !== "string") {
@@ -120,10 +118,7 @@ export async function validateExternalUrl(rawUrl: string): Promise<URL> {
   }
 
   const normalizedHostname = normalizeIp(hostname);
-  if (
-    isIP(normalizedHostname) &&
-    isPrivateOrLocalAddress(normalizedHostname)
-  ) {
+  if (isIP(normalizedHostname) && isPrivateOrLocalAddress(normalizedHostname)) {
     throw new Error("Private network addresses are not allowed");
   }
 

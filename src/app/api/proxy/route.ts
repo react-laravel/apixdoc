@@ -22,7 +22,24 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { url, method, headers, body: requestBody } = body;
+    const {
+      url,
+      method,
+      headers,
+      body: requestBody,
+      timeoutMs = PROXY_TIMEOUT_MS,
+    } = body;
+    if (
+      typeof timeoutMs !== "number" ||
+      !Number.isFinite(timeoutMs) ||
+      timeoutMs < 1000 ||
+      timeoutMs > 60000
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Timeout must be between 1000 and 60000 ms" },
+        { status: 400 },
+      );
+    }
     const normalizedMethod =
       typeof method === "string" ? method.toUpperCase() : "";
 
@@ -42,7 +59,7 @@ export async function POST(
 
     const targetUrl = await validateExternalUrl(url);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     const fetchOptions: RequestInit = {
       method: normalizedMethod,
@@ -68,7 +85,7 @@ export async function POST(
       const responseBody = await readLimitedResponseBody(response);
       const duration = Date.now() - startTime;
 
-      const responseHeaders: Record<string, string> = {};
+      const responseHeaders: Record<string, string> = Object.create(null);
       response.headers.forEach((value, key) => {
         responseHeaders[key] = value;
       });

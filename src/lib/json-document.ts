@@ -180,3 +180,79 @@ export function formatBytes(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/** Replace unquoted template values with equally sized JSON tokens for source diagnostics. */
+function jsonTemplateSource(text: string) {
+  const placeholders = new Map<number, string>();
+  let source = "";
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (!quoted && text.startsWith("{{", index)) {
+      const end = text.indexOf("}}", index + 2);
+      if (end !== -1) {
+        const value = text.slice(index, end + 2);
+        placeholders.set(index, value);
+        source += "0" + value.slice(1).replace(/[^\r\n]/g, " ");
+        index = end + 1;
+        continue;
+      }
+    }
+    source += char;
+    if (char === '"' && !escaped) quoted = !quoted;
+    escaped = char === "\\" && !escaped;
+  }
+  return { source, placeholders };
+}
+
+export function inspectJsonTemplate(text: string): JsonDocument {
+  const size = new TextEncoder().encode(text).length;
+  if (size > MAX_STRUCTURED_JSON_SIZE) return inspectJson(text);
+  return { ...inspectJson(jsonTemplateSource(text).source), size };
+}
+
+export function transformJsonTemplate(text: string, pretty: boolean): string {
+  const document = inspectJsonTemplate(text);
+  if (document.issue) throw new Error(document.issue.message);
+  if (document.empty) return text;
+  const { source, placeholders } = jsonTemplateSource(text);
+  const scanner = createScanner(source, true);
+  const tokens: { kind: number; value: string }[] = [];
+  for (let kind = scanner.scan(); kind !== Tokens.EOF; kind = scanner.scan()) {
+    const offset = scanner.getTokenOffset();
+    tokens.push({
+      kind,
+      value:
+        placeholders.get(offset) ??
+        text.slice(offset, offset + scanner.getTokenLength()),
+    });
+  }
+  if (!pretty) return tokens.map((token) => token.value).join("");
+  let depth = 0;
+  let output = "";
+  const isOpen = (kind?: number) =>
+    kind === Tokens.OpenBrace || kind === Tokens.OpenBracket;
+  const isClose = (kind?: number) =>
+    kind === Tokens.CloseBrace || kind === Tokens.CloseBracket;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (isOpen(token.kind)) {
+      output += token.value;
+      depth++;
+      if (!isClose(tokens[index + 1]?.kind))
+        output += "\n" + "  ".repeat(depth);
+    } else if (isClose(token.kind)) {
+      depth--;
+      if (!isOpen(tokens[index - 1]?.kind)) output += "\n" + "  ".repeat(depth);
+      output += token.value;
+    } else if (token.kind === 5) {
+      // CommaToken
+      output += ",\n" + "  ".repeat(depth);
+    } else if (token.kind === 6) {
+      // ColonToken
+      output += ": ";
+    } else output += token.value;
+  }
+  return output;
+}

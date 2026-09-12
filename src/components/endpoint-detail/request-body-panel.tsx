@@ -78,6 +78,7 @@ export function RequestBodyPanel({
       />
       <JsonWorkbench
         label="请求体示例"
+        template={/\{\{[^{}]+\}\}/.test(example)}
         value={example}
         onChange={onExampleChange}
         disabled={saving}

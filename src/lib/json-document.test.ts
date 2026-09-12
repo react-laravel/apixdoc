@@ -80,3 +80,27 @@ describe("lossless JSON tools", () => {
     expect(isJsonContentType("text/html")).toBe(false);
   });
 });
+
+describe("JSON request templates", () => {
+  it("formats placeholders as complete tokens without changing precision or string escapes", async () => {
+    const { inspectJsonTemplate, transformJsonTemplate } = await import(
+      "./json-document"
+    );
+    const source =
+      '{"id":{{ id }},"items":[{{items}},{}],"name":"{{name}}","big":9223372036854775807}';
+    expect(inspectJsonTemplate(source).issue).toBeUndefined();
+    const formatted = transformJsonTemplate(source, true);
+    expect(formatted).toContain('"id": {{ id }}');
+    expect(formatted).toContain("\n  ]");
+    expect(transformJsonTemplate(formatted, false)).toBe(source);
+  });
+  it("still locates real syntax errors around template values", async () => {
+    const { inspectJsonTemplate, transformJsonTemplate } = await import(
+      "./json-document"
+    );
+    const broken = '{\n "id": {{id}}\n "name": "a"\n}';
+    expect(inspectJsonTemplate(broken).issue?.line).toBe(3);
+    expect(() => transformJsonTemplate(broken, true)).toThrow();
+    expect(inspectJsonTemplate("{{payload}}").issue).toBeUndefined();
+  });
+});

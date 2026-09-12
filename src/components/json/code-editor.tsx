@@ -4,12 +4,19 @@ import { useEffect, useRef } from "react";
 import { isolateHistory } from "@codemirror/commands";
 import { basicSetup } from "codemirror";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import {
+  EditorView,
+  Decoration,
+  MatchDecorator,
+  ViewPlugin,
+  type DecorationSet,
+  type ViewUpdate,
+} from "@codemirror/view";
 import { json } from "@codemirror/lang-json";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import { linter } from "@codemirror/lint";
-import { inspectJson } from "@/lib/json-document";
+import { inspectJson, inspectJsonTemplate } from "@/lib/json-document";
 
 export interface CodeEditorProps {
   value: string;
@@ -17,13 +24,36 @@ export interface CodeEditorProps {
   label: string;
   language?: "json" | "text";
   readOnly?: boolean;
+  template?: boolean;
   wrap?: boolean;
   focusOffset?: { offset: number; request: number };
 }
 
 const externalChange = Annotation.define<boolean>();
 
+const templateMatcher = new MatchDecorator({
+  regexp: /\{\{[^{}]+\}\}/g,
+  decoration: Decoration.mark({ class: "cm-template-variable" }),
+});
+const templateHighlight = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = templateMatcher.createDeco(view);
+    }
+    update(update: ViewUpdate) {
+      this.decorations = templateMatcher.updateDeco(update, this.decorations);
+    }
+  },
+  { decorations: (plugin) => plugin.decorations },
+);
+
 const theme = EditorView.theme({
+  ".cm-template-variable": {
+    color: "var(--json-key)",
+    backgroundColor: "var(--json-selection)",
+    borderRadius: "3px",
+  },
   "&": {
     backgroundColor: "var(--json-bg)",
     color: "var(--json-fg)",
@@ -84,6 +114,7 @@ export function CodeEditor({
   label,
   language = "json",
   readOnly = false,
+  template = false,
   wrap = true,
   focusOffset,
 }: CodeEditorProps) {
@@ -139,12 +170,15 @@ export function CodeEditor({
           tabindex: "0",
         }),
         ...(wrap ? [EditorView.lineWrapping] : []),
+        ...(template ? [templateHighlight] : []),
         ...(language === "json"
           ? [
               json(),
               linter(
                 (editor) => {
-                  const issue = inspectJson(editor.state.doc.toString()).issue;
+                  const issue = (template ? inspectJsonTemplate : inspectJson)(
+                    editor.state.doc.toString(),
+                  ).issue;
                   return issue
                     ? [
                         {
@@ -165,7 +199,7 @@ export function CodeEditor({
           : []),
       ]),
     });
-  }, [label, language, readOnly, wrap]);
+  }, [label, language, readOnly, wrap, template]);
 
   useEffect(() => {
     const editor = view.current;

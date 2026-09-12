@@ -1,22 +1,29 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { isProjectMember } from "@/lib/project-membership";
+import { parseProjectSettings } from "@/lib/project-settings";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
     const { id } = await params;
+    if (!(await isProjectMember(id, session.user.id)))
+      return NextResponse.json(
+        { success: false, error: "Forbidden" },
+        { status: 403 },
+      );
 
     const environments = await prisma.environment.findMany({
       where: { projectId: id },
@@ -27,21 +34,21 @@ export async function GET(
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch environments" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -51,7 +58,7 @@ export async function POST(
     if (!project) {
       return NextResponse.json(
         { success: false, error: "Project not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -67,7 +74,7 @@ export async function POST(
     if (!member) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -77,43 +84,32 @@ export async function POST(
     if (!Array.isArray(environments)) {
       return NextResponse.json(
         { success: false, error: "environments must be an array" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    await prisma.$transaction([
-      prisma.environment.deleteMany({ where: { projectId: id } }),
-      prisma.environment.createMany({
-        data: environments.map(
-          (env: {
-            name: string;
-            baseUrl: string;
-            variables?: string | object;
-            isDefault?: boolean;
-          }) => ({
-            projectId: id,
-            name: env.name,
-            baseUrl: env.baseUrl,
-            variables:
-              typeof env.variables === "string"
-                ? env.variables
-                : JSON.stringify(env.variables || {}),
-            isDefault: env.isDefault || false,
-          })
-        ),
-      }),
-    ]);
-
-    const created = await prisma.environment.findMany({
-      where: { projectId: id },
-      orderBy: { name: "asc" },
+    let data;
+    try {
+      data = parseProjectSettings({ environments });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "环境配置不正确",
+        },
+        { status: 400 },
+      );
+    }
+    const updated = await prisma.project.update({
+      where: { id },
+      data,
+      include: { environments: { orderBy: { name: "asc" } } },
     });
-
-    return NextResponse.json({ success: true, data: created });
+    return NextResponse.json({ success: true, data: updated.environments });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to update environments" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

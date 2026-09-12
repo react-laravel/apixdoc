@@ -189,6 +189,8 @@ export default function ProjectPage() {
               <EndpointDetail
                 key={selectedEndpoint.id}
                 endpoint={selectedEndpoint}
+                projectId={project.id}
+                environments={project.environments}
                 projectBaseUrl={project.baseUrl}
                 globalHeaders={project.globalHeaders ?? []}
                 globalParams={project.globalParams ?? []}

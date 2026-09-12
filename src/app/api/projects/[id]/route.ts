@@ -91,7 +91,15 @@ export async function GET(
       },
     });
 
-    return NextResponse.json({ success: true, data: fullProject });
+    return NextResponse.json({
+      success: true,
+      data: fullProject && {
+        ...fullProject,
+        globalHeaders: isMember ? fullProject.globalHeaders : [],
+        globalParams: isMember ? fullProject.globalParams : [],
+        environments: isMember ? fullProject.environments : [],
+      },
+    });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch project" },

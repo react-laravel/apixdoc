@@ -74,3 +74,32 @@ describe("project settings writes", () => {
     expect(() => parseProjectSettings(value)).toThrow();
   });
 });
+
+describe("environment configuration validation", () => {
+  it("supports template base URLs and keeps their source text", () => {
+    expect(parseProjectSettings({ baseUrl: "{{base_url}}" }).baseUrl).toBe(
+      "{{base_url}}",
+    );
+    expect(
+      parseProjectSettings({ baseUrl: "https://{{host}}/v1" }).baseUrl,
+    ).toBe("https://{{host}}/v1");
+  });
+  it("rejects duplicate environment names and multiple defaults", () => {
+    expect(() =>
+      parseProjectSettings({
+        environments: [
+          { name: "dev", baseUrl: "" },
+          { name: "DEV", baseUrl: "" },
+        ],
+      }),
+    ).toThrow("重复");
+    expect(() =>
+      parseProjectSettings({
+        environments: [
+          { name: "dev", baseUrl: "", isDefault: true },
+          { name: "prod", baseUrl: "", isDefault: true },
+        ],
+      }),
+    ).toThrow("默认");
+  });
+});

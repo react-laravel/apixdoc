@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { inspectJson } from "@/lib/json-document";
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -21,8 +22,13 @@ function boolean(value: unknown, fallback: boolean): boolean {
 function baseUrl(value: unknown): string {
   const result = text(value, "基础 URL").trim();
   if (!result) return result;
+  if (/^\{\{\s*[^{}]+\s*\}\}$/.test(result)) return result;
   try {
-    if (!["http:", "https:"].includes(new URL(result).protocol))
+    if (
+      !["http:", "https:"].includes(
+        new URL(result.replace(/\{\{[^{}]+\}\}/g, "placeholder")).protocol,
+      )
+    )
       throw new Error();
   } catch {
     throw new Error("基础 URL 必须是有效的 http 或 https 地址");
@@ -52,17 +58,26 @@ export function parseProjectSettings(
   if (body.isPublic !== undefined)
     data.isPublic = boolean(body.isPublic, false);
   if (body.environments !== undefined) {
+    const names = new Set<string>();
+    let defaults = 0;
     data.environments = {
       deleteMany: {},
       create: list(body.environments, (item) => {
         const variables = text(item.variables ?? "{}", "环境变量");
         try {
-          record(JSON.parse(variables));
+          const document = inspectJson(variables);
+          if (document.issue || document.root?.type !== "object")
+            throw new Error();
         } catch {
           throw new Error("环境变量必须是有效的 JSON 对象");
         }
+        const name = text(item.name, "环境名称", true).trim();
+        if (names.has(name.toLowerCase())) throw new Error("环境名称不能重复");
+        names.add(name.toLowerCase());
+        if (item.isDefault === true && ++defaults > 1)
+          throw new Error("只能选择一个默认环境");
         return {
-          name: text(item.name, "环境名称", true).trim(),
+          name,
           baseUrl: baseUrl(item.baseUrl),
           variables,
           isDefault: boolean(item.isDefault, false),

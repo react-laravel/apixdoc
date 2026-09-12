@@ -1,22 +1,29 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { isProjectMember } from "@/lib/project-membership";
+import { parseProjectSettings } from "@/lib/project-settings";
 import { type ApiResponse } from "@/lib/utils";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
     const { id } = await params;
+    if (!(await isProjectMember(id, session.user.id)))
+      return NextResponse.json(
+        { success: false, error: "Forbidden" },
+        { status: 403 },
+      );
 
     const [headers, globalParams] = await Promise.all([
       prisma.globalHeader.findMany({ where: { projectId: id } }),
@@ -30,21 +37,21 @@ export async function GET(
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to fetch globals" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse<ApiResponse>> {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json(
         { success: false, error: "Unauthorized" },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
@@ -54,7 +61,7 @@ export async function POST(
     if (!project) {
       return NextResponse.json(
         { success: false, error: "Project not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -70,73 +77,41 @@ export async function POST(
     if (!member) {
       return NextResponse.json(
         { success: false, error: "Forbidden" },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
     const body = await request.json();
     const { headers: headerList, params: paramList } = body;
 
-    await prisma.$transaction([
-      prisma.globalHeader.deleteMany({ where: { projectId: id } }),
-      prisma.globalParam.deleteMany({ where: { projectId: id } }),
-      ...(Array.isArray(headerList) && headerList.length > 0
-        ? [
-            prisma.globalHeader.createMany({
-              data: headerList.map(
-                (h: {
-                  key: string;
-                  value?: string;
-                  description?: string;
-                  enabled?: boolean;
-                }) => ({
-                  projectId: id,
-                  key: h.key,
-                  value: h.value || "",
-                  description: h.description || "",
-                  enabled: h.enabled !== false,
-                })
-              ),
-            }),
-          ]
-        : []),
-      ...(Array.isArray(paramList) && paramList.length > 0
-        ? [
-            prisma.globalParam.createMany({
-              data: paramList.map(
-                (p: {
-                  name: string;
-                  value?: string;
-                  description?: string;
-                  location?: string;
-                  enabled?: boolean;
-                }) => ({
-                  projectId: id,
-                  name: p.name,
-                  value: p.value || "",
-                  description: p.description || "",
-                  location: p.location || "query",
-                  enabled: p.enabled !== false,
-                })
-              ),
-            }),
-          ]
-        : []),
-    ]);
-
-    const [headers, globalParams] = await Promise.all([
-      prisma.globalHeader.findMany({ where: { projectId: id } }),
-      prisma.globalParam.findMany({ where: { projectId: id } }),
-    ]);
-
+    let data;
+    try {
+      data = parseProjectSettings({
+        globalHeaders: headerList,
+        globalParams: paramList,
+      });
+    } catch (error) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "全局配置不正确",
+        },
+        { status: 400 },
+      );
+    }
+    const updated = await prisma.project.update({
+      where: { id },
+      data,
+      include: { globalHeaders: true, globalParams: true },
+    });
     return NextResponse.json({
       success: true,
-      data: { headers, params: globalParams },
+      data: { headers: updated.globalHeaders, params: updated.globalParams },
     });
   } catch {
     return NextResponse.json(
       { success: false, error: "Failed to update globals" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

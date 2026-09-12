@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { JsonWorkbench } from "@/components/json/json-workbench";
 import {
   Dialog,
   DialogContent,
@@ -219,6 +220,7 @@ export function ProjectSettings({
                 >
                   <div className="flex items-center gap-2">
                     <Input
+                      aria-label={`环境名称 ${i + 1}`}
                       placeholder="环境名称"
                       value={env.name}
                       onChange={(e) =>
@@ -235,21 +237,41 @@ export function ProjectSettings({
                     </Button>
                   </div>
                   <Input
-                    placeholder="基础 URL"
+                    aria-label={`环境地址 ${i + 1}`}
+                    placeholder="基础 URL 或 {{base_url}}"
                     value={env.baseUrl}
                     onChange={(e) =>
                       updateEnvironment(i, "baseUrl", e.target.value)
                     }
                   />
-                  <Textarea
-                    placeholder='变量 JSON，如 {"token": "xxx"}'
+                  <label className="flex items-center gap-2 text-xs text-zinc-500">
+                    <input
+                      type="checkbox"
+                      checked={!!env.isDefault}
+                      onChange={(event) =>
+                        setEnvironments((previous) =>
+                          previous.map((item, index) => ({
+                            ...item,
+                            isDefault: index === i && event.target.checked,
+                          })),
+                        )
+                      }
+                    />
+                    默认调试环境
+                  </label>
+                  <JsonWorkbench
+                    label={`${env.name || `环境 ${i + 1}`}变量`}
                     value={env.variables}
-                    onChange={(e) =>
-                      updateEnvironment(i, "variables", e.target.value)
+                    onChange={(value) =>
+                      updateEnvironment(i, "variables", value)
                     }
-                    rows={2}
-                    className="font-mono text-xs"
+                    disabled={saving}
+                    filename="environment-variables.json"
                   />
+                  <p className="text-xs text-zinc-500">
+                    使用 JSON 对象配置变量，在请求中通过 {"{{变量名}}"}{" "}
+                    引用。变量会与项目成员共享。
+                  </p>
                 </div>
               ))}
               <Button variant="outline" size="sm" onClick={addEnvironment}>

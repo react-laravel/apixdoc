@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { buildRequestUrl } from "@/lib/request-url";
+import { apiFetch } from "@/lib/api-fetch";
 import { MethodBadge } from "@/components/method-badge";
 import type {
   EndpointDetailData,
@@ -10,6 +10,8 @@ import type {
   EndpointResponse,
   GlobalHeader,
   GlobalParam,
+  Environment,
+  SendRequestResult,
 } from "@/lib/types";
 import { BasicInfoPanel } from "@/components/endpoint-detail/basic-info-panel";
 import { ParamsPanel } from "@/components/endpoint-detail/params-panel";
@@ -17,11 +19,9 @@ import { RequestBodyPanel } from "@/components/endpoint-detail/request-body-pane
 import { ResponsesPanel } from "@/components/endpoint-detail/responses-panel";
 import { TestPanel } from "@/components/endpoint-detail/test-panel";
 
-function isLoginPath(path: string) {
-  return /(^|\/)login(\/|$)/i.test(path) || /(^|\/)auth(\/|$)/i.test(path);
-}
-
 interface EndpointDetailProps {
+  projectId?: string;
+  environments?: Environment[];
   endpoint: EndpointDetailData;
   projectBaseUrl: string;
   globalHeaders: GlobalHeader[];
@@ -32,6 +32,8 @@ interface EndpointDetailProps {
 
 export function EndpointDetail({
   endpoint,
+  projectId,
+  environments,
   projectBaseUrl,
   globalHeaders,
   globalParams,
@@ -440,6 +442,10 @@ export function EndpointDetail({
           >
             {testVisited && (
               <TestPanel
+                projectId={projectId}
+                endpointId={endpoint.id}
+                environments={environments}
+                endpointHeaders={endpoint.headers}
                 method={method}
                 path={path}
                 projectBaseUrl={projectBaseUrl}
@@ -448,67 +454,13 @@ export function EndpointDetail({
                 params={params}
                 bodyExample={bodyExample}
                 bodyContentType={bodyContentType}
-                onSend={async ({
-                  headers,
-                  queryParams,
-                  body,
-                  authToken,
-                  signal,
-                }) => {
-                  const fullUrl = buildRequestUrl(
-                    projectBaseUrl,
-                    path,
-                    queryParams,
-                  );
-
-                  const headersObj: Record<string, string> = {};
-                  for (const h of headers) {
-                    if (h.key) headersObj[h.key] = h.value;
-                  }
-
-                  const normalizedMethod = method.toUpperCase();
-                  const requestHasBody = [
-                    "POST",
-                    "PUT",
-                    "PATCH",
-                    "DELETE",
-                  ].includes(normalizedMethod);
-                  const hasContentTypeHeader = Object.keys(headersObj).some(
-                    (key) => key.toLowerCase() === "content-type",
-                  );
-                  if (requestHasBody && !hasContentTypeHeader) {
-                    headersObj["Content-Type"] =
-                      bodyContentType || "application/json";
-                  }
-
-                  const hasAuthorizationHeader = Object.keys(headersObj).some(
-                    (key) => key.toLowerCase() === "authorization",
-                  );
-                  if (
-                    authToken &&
-                    !hasAuthorizationHeader &&
-                    !isLoginPath(path)
-                  ) {
-                    headersObj.Authorization = `Bearer ${authToken}`;
-                  }
-
-                  const res = await fetch("/api/proxy", {
-                    signal,
+                onSend={async ({ signal, ...request }) =>
+                  apiFetch<SendRequestResult>("/api/proxy", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      url: fullUrl,
-                      method: normalizedMethod,
-                      headers: headersObj,
-                      body: requestHasBody ? body : undefined,
-                    }),
-                  });
-                  const json = await res.json();
-                  if (!json.success) {
-                    throw new Error(json.error || "请求失败");
-                  }
-                  return json.data;
-                }}
+                    signal,
+                    body: JSON.stringify(request),
+                  })
+                }
                 onImportResponse={(response) => importTestResponse(response)}
               />
             )}

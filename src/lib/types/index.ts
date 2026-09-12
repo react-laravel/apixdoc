@@ -16,6 +16,7 @@ export interface Endpoint {
   description: string;
   folderId: string | null;
   parameters?: EndpointParam[];
+  headers?: EndpointHeader[];
   requestBody?: RequestBody | null;
   responses?: EndpointResponse[];
 }
@@ -28,6 +29,14 @@ export interface EndpointParam {
   location: string;
   description: string;
   example: string;
+}
+
+export interface EndpointHeader {
+  id?: string;
+  key: string;
+  value: string;
+  description?: string;
+  required?: boolean;
 }
 
 export interface RequestBody {
@@ -63,6 +72,7 @@ export interface Environment {
   name: string;
   baseUrl: string;
   variables: string;
+  isDefault?: boolean;
 }
 
 export interface GlobalHeader {
@@ -195,6 +205,7 @@ export interface EndpointDetailData {
   path: string;
   description: string;
   parameters?: EndpointParam[];
+  headers?: EndpointHeader[];
   requestBody?: RequestBody | null;
   responses?: EndpointResponse[];
 }

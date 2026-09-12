@@ -18,6 +18,8 @@ import {
   formatBytes,
   formatJson,
   inspectJson,
+  inspectJsonTemplate,
+  transformJsonTemplate,
   minifyJson,
 } from "@/lib/json-document";
 import { cn } from "@/lib/utils";
@@ -30,6 +32,7 @@ interface JsonWorkbenchProps {
   language?: "json" | "text";
   filename?: string;
   disabled?: boolean;
+  template?: boolean;
 }
 
 export function JsonWorkbench({
@@ -40,6 +43,7 @@ export function JsonWorkbench({
   language = "json",
   filename = "document.json",
   disabled = false,
+  template = false,
 }: JsonWorkbenchProps) {
   const id = useId();
   const [mode, setMode] = useState<"source" | "tree">("source");
@@ -55,19 +59,24 @@ export function JsonWorkbench({
   const document = useMemo(
     () =>
       language === "json"
-        ? inspectJson(value)
+        ? (template ? inspectJsonTemplate : inspectJson)(value)
         : {
             empty: !value,
             size: new TextEncoder().encode(value).length,
             root: undefined,
             issue: undefined,
           },
-    [value, language],
+    [value, language, template],
   );
   const canFormat = language === "json" && !!document.root && !document.issue;
   const displayed = useMemo(
-    () => (readOnly && pretty && canFormat ? formatJson(value) : value),
-    [readOnly, pretty, canFormat, value],
+    () =>
+      readOnly && pretty && canFormat
+        ? template
+          ? transformJsonTemplate(value, true)
+          : formatJson(value)
+        : value,
+    [readOnly, pretty, canFormat, value, template],
   );
 
   const copy = async (text: string, kind = "内容") => {
@@ -86,7 +95,13 @@ export function JsonWorkbench({
         setPretty(action === "format");
         setNotice(null);
       } else {
-        onChange?.(action === "format" ? formatJson(value) : minifyJson(value));
+        onChange?.(
+          template
+            ? transformJsonTemplate(value, action === "format")
+            : action === "format"
+              ? formatJson(value)
+              : minifyJson(value),
+        );
         setNotice(action === "format" ? "已美化" : "已压缩");
       }
       setMode("source");
@@ -148,7 +163,8 @@ export function JsonWorkbench({
                 mode === "tree" && "bg-white shadow-sm dark:bg-zinc-700",
               )}
               aria-pressed={mode === "tree"}
-              disabled={!canFormat}
+              disabled={!canFormat || template}
+              title={template ? "请在解析后的请求体中查看结构" : undefined}
               onClick={() => setMode("tree")}
             >
               结构
@@ -233,7 +249,7 @@ export function JsonWorkbench({
           )}
         </Button>
       </div>
-      {mode === "tree" && document.root && !document.issue ? (
+      {mode === "tree" && !template && document.root && !document.issue ? (
         <JsonTree root={document.root} source={value} onCopy={copy} />
       ) : (
         <CodeEditor
@@ -252,6 +268,7 @@ export function JsonWorkbench({
           label={label}
           readOnly={readOnly || disabled}
           language={language}
+          template={template}
           wrap={wrap}
           focusOffset={focusOffset}
         />
@@ -282,7 +299,13 @@ export function JsonWorkbench({
                 : "text-zinc-500"
             }
           >
-            {canFormat ? "有效 JSON" : document.empty ? "暂无内容" : "纯文本"}
+            {canFormat
+              ? template
+                ? "JSON 变量模板"
+                : "有效 JSON"
+              : document.empty
+                ? "暂无内容"
+                : "纯文本"}
           </span>
         )}
         <span className="text-zinc-500">
