@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +16,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { HTTP_METHODS } from "@/lib/utils";
@@ -45,8 +46,10 @@ export function CreateEndpointDialog({
   const [endpointDescription, setEndpointDescription] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const lock = useRef(false);
 
   const handleOpenChange = (nextOpen: boolean) => {
+    if (lock.current) return;
     onOpenChange(nextOpen);
     if (!nextOpen) {
       setEndpointName("");
@@ -58,31 +61,58 @@ export function CreateEndpointDialog({
   };
 
   const handleCreate = async () => {
+    if (lock.current) return;
+    lock.current = true;
     setSubmitting(true);
     setError("");
-    const result = await onCreate({
-      name: endpointName,
-      method: endpointMethod,
-      path: endpointPath,
-      description: endpointDescription,
-      folderId,
-    });
-    setSubmitting(false);
-    if (result.error) {
-      setError(result.error);
+    try {
+      const result = await onCreate({
+        name: endpointName,
+        method: endpointMethod,
+        path: endpointPath,
+        description: endpointDescription,
+        folderId,
+      });
+      if (result.error) setError(result.error);
+      else {
+        lock.current = false;
+        handleOpenChange(false);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "创建接口失败，请重试");
+    } finally {
+      lock.current = false;
+      setSubmitting(false);
     }
   };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <DialogContent closeDisabled={submitting}>
         <DialogHeader>
           <DialogTitle>新建接口</DialogTitle>
+          <DialogDescription>
+            填写请求方法和路径，创建后继续编辑参数与响应。
+          </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleCreate();
+          }}
+          className="space-y-4"
+          aria-busy={submitting}
+        >
           <div>
-            <label className="mb-1 block text-sm font-medium">接口名称</label>
+            <label
+              htmlFor="endpoint-name"
+              className="mb-1 block text-sm font-medium"
+            >
+              接口名称
+            </label>
             <Input
+              id="endpoint-name"
+              disabled={submitting}
               value={endpointName}
               onChange={(e) => setEndpointName(e.target.value)}
               placeholder="如：获取用户列表"
@@ -91,8 +121,12 @@ export function CreateEndpointDialog({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <label className="mb-1 block text-sm font-medium">方法</label>
-              <Select value={endpointMethod} onValueChange={setEndpointMethod}>
-                <SelectTrigger>
+              <Select
+                disabled={submitting}
+                value={endpointMethod}
+                onValueChange={setEndpointMethod}
+              >
+                <SelectTrigger aria-label="请求方法">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -105,8 +139,15 @@ export function CreateEndpointDialog({
               </Select>
             </div>
             <div className="sm:col-span-2">
-              <label className="mb-1 block text-sm font-medium">路径</label>
+              <label
+                htmlFor="endpoint-path"
+                className="mb-1 block text-sm font-medium"
+              >
+                路径
+              </label>
               <Input
+                id="endpoint-path"
+                disabled={submitting}
                 value={endpointPath}
                 onChange={(e) => {
                   setEndpointPath(e.target.value);
@@ -118,24 +159,40 @@ export function CreateEndpointDialog({
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium">描述</label>
+            <label
+              htmlFor="endpoint-description"
+              className="mb-1 block text-sm font-medium"
+            >
+              描述
+            </label>
             <Textarea
+              id="endpoint-description"
+              disabled={submitting}
               value={endpointDescription}
               onChange={(e) => setEndpointDescription(e.target.value)}
               placeholder="接口功能描述"
               rows={3}
             />
           </div>
-          {error && <p className="text-xs text-red-500">{error}</p>}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
-          </Button>
-          <Button onClick={handleCreate} disabled={submitting}>
-            {submitting ? "创建中..." : "创建"}
-          </Button>
-        </DialogFooter>
+          {error && (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              type="button"
+              disabled={submitting}
+              onClick={() => handleOpenChange(false)}
+            >
+              取消
+            </Button>
+            <Button type="submit" disabled={submitting}>
+              {submitting ? "创建中..." : "创建"}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

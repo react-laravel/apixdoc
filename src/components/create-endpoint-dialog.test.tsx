@@ -103,8 +103,8 @@ describe("CreateEndpointDialog", () => {
     const methodSelect = screen.getByRole("combobox");
     fireEvent.click(methodSelect);
 
-    expect(screen.getByText("POST")).toBeDefined();
-    expect(screen.getByText("DELETE")).toBeDefined();
+    expect(screen.getByRole("option", {name:"POST",exact:true})).toBeDefined();
+    expect(screen.getByRole("option", {name:"DELETE",exact:true})).toBeDefined();
   });
 
   it("passes folderId to onCreate", async () => {

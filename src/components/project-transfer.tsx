@@ -69,7 +69,7 @@ export function ProjectTransfer({
           beforeImport={beforeImport}
         />
       )}
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
         <Download className="size-3.5" />
         导出
       </Button>

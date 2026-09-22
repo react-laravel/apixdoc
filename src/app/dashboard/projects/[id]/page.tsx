@@ -136,7 +136,7 @@ function ProjectWorkspace() {
         <div
           role="group"
           aria-label="项目操作"
-          className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0"
+          className="flex w-full min-w-0 flex-wrap items-center gap-1.5 border-t border-zinc-100 pt-2 xl:w-auto xl:border-0 xl:pt-0 dark:border-zinc-800"
         >
           <ProjectPublications
             project={project}
@@ -175,7 +175,7 @@ function ProjectWorkspace() {
           </Link>
           {project.permissions?.canConfigure !== false && (
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               className="shrink-0 gap-2"
               onClick={() => {

@@ -251,7 +251,7 @@ export default function AccountPage() {
                 {account.ownerships.map((org) => (
                   <Link
                     key={org.id}
-                    href={`/dashboard/organizations/${org.id}`}
+                    href={`/dashboard/organizations/${org.id}#members`}
                     className="block break-all text-blue-600 underline"
                   >
                     {org.name}

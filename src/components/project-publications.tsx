@@ -156,7 +156,7 @@ export function ProjectPublications({
   };
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button size="sm" onClick={() => setOpen(true)}>
         <Send className="size-3.5" />
         发布
       </Button>

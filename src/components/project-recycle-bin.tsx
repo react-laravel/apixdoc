@@ -82,7 +82,7 @@ export function ProjectRecycleBin({
   };
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
         <Trash2 className="size-3.5" />
         回收站
       </Button>

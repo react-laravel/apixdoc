@@ -1,208 +1,222 @@
 "use client";
-
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { ArrowLeft, Plus, Users, FolderOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { TeamManagement } from "@/components/team-management";
+import { CreateWorkspaceDialog } from "@/components/workspace/create-workspace-dialog";
+import {
+  PageHeading,
+  ListSearch,
+  ListSkeleton,
+  EmptyList,
+  ProjectCard,
+} from "@/components/workspace/list-ui";
 import { apiFetch } from "@/lib/api-fetch";
 import type { Organization, Project } from "@/lib/types";
-
 export default function OrganizationDetailPage() {
-  const params = useParams<{ id: string }>();
-  const [org, setOrg] = useState<Organization | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const [projectDialogOpen, setProjectDialogOpen] = useState(false);
-  const [projectName, setProjectName] = useState("");
-  const [projectDesc, setProjectDesc] = useState("");
-
+  const { id } = useParams<{ id: string }>();
+  return <OrganizationWorkspace key={id} id={id} />;
+}
+function OrganizationWorkspace({ id }: { id: string }) {
+  const [org, setOrg] = useState<Organization | null>(null),
+    [projects, setProjects] = useState<Project[]>([]),
+    [loading, setLoading] = useState(true),
+    [error, setError] = useState(""),
+    [projectDialogOpen, setProjectDialogOpen] = useState(false),
+    [query, setQuery] = useState(""),
+    [tab, setTab] = useState("projects"),
+    [notice, setNotice] = useState("");
   const sequence = useRef(0);
-  const [creating, setCreating] = useState(false);
-  const creationLock = useRef(false);
   const fetchData = useCallback(async () => {
     const version = ++sequence.current;
-    setError(null);
+    setError("");
     try {
-      const [orgData, projData] = await Promise.all([
-        apiFetch<Organization>(`/api/organizations/${params.id}`),
-        apiFetch<Project[]>(`/api/projects?organizationId=${params.id}`),
+      const [orgData, projectData] = await Promise.all([
+        apiFetch<Organization>(`/api/organizations/${id}`),
+        apiFetch<Project[]>(`/api/projects?organizationId=${id}`),
       ]);
       if (version !== sequence.current) return;
       setOrg(orgData);
-      setProjects(projData);
-    } catch (err) {
+      setProjects(projectData);
+    } catch (e) {
       if (version === sequence.current)
-        setError(err instanceof Error ? err.message : "加载失败");
-      throw err;
+        setError(e instanceof Error ? e.message : "加载失败");
+      throw e;
     } finally {
       if (version === sequence.current) setLoading(false);
     }
-  }, [params.id]);
-
+  }, [id]);
   useEffect(() => {
-    setOrg(null);
-    setLoading(true);
-    fetchData().catch(() => {});
-    const requestSequence = sequence;
+    void fetchData().catch(() => {});
+    const current = sequence;
     return () => {
-      requestSequence.current++;
+      current.current++;
     };
   }, [fetchData]);
-
-  const handleCreateProject = async () => {
-    if (!projectName.trim() || creationLock.current) return;
-    creationLock.current = true;
-    setCreating(true);
-
-    try {
-      const created = await apiFetch<Project>("/api/projects", {
-        method: "POST",
-        body: JSON.stringify({
-          name: projectName,
-          description: projectDesc,
-          organizationId: params.id,
-        }),
-      });
-      setProjects((prev) => [...prev, created]);
-      setProjectDialogOpen(false);
-      setProjectName("");
-      setProjectDesc("");
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "创建项目失败");
-    } finally {
-      creationLock.current = false;
-      setCreating(false);
-    }
-  };
-
-  if (loading) {
-    return <p className="text-zinc-500">加载中...</p>;
-  }
-
-  if (!org) {
-    return (
-      <div className="mx-auto max-w-4xl space-y-8">
-        {error && <p className="text-sm text-red-500">{error}</p>}
-        {!error && <p className="text-zinc-500">组织不存在</p>}
-        <Button variant="outline" onClick={() => fetchData().catch(() => {})}>
-          重新加载
-        </Button>
-      </div>
+  useEffect(() => {
+    const sync = () =>
+      setTab(window.location.hash === "#members" ? "members" : "projects");
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+  function changeTab(value: string) {
+    setTab(value);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${window.location.search}${value === "members" ? "#members" : ""}`,
     );
   }
-
-  return (
-    <div className="mx-auto max-w-4xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">{org.name}</h1>
-        {org.description && (
-          <p className="mt-1 text-zinc-500">{org.description}</p>
-        )}
+  if (loading)
+    return (
+      <div className="mx-auto max-w-6xl">
+        <ListSkeleton />
       </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-400">
-          {error}
-        </div>
-      )}
-
-      <TeamManagement organization={org} onReload={fetchData} />
-
-      {/* Projects */}
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">项目</h2>
-          {org.permissions?.canEdit !== false && (
-            <Button size="sm" onClick={() => setProjectDialogOpen(true)}>
-              创建项目
-            </Button>
-          )}
-        </div>
-        {projects.length === 0 ? (
-          <p className="text-zinc-500">暂无项目</p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            {projects.map((p) => (
-              <Link
-                key={p.id}
-                href={`/dashboard/projects/${p.id}`}
-                className="rounded-lg border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
-              >
-                <div className="flex items-center gap-2">
-                  <h3 className="font-medium">{p.name}</h3>
-                  <Badge variant="outline" className="text-[10px]">
-                    {p.isPublic ? "公开" : "私有"}
-                  </Badge>
-                </div>
-                {p.description && (
-                  <p className="mt-1 text-sm text-zinc-500 line-clamp-2">
-                    {p.description}
-                  </p>
-                )}
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Create Project Dialog */}
-      <Dialog
-        open={projectDialogOpen}
-        onOpenChange={(open) => !creating && setProjectDialogOpen(open)}
+    );
+  if (!org)
+    return (
+      <div className="mx-auto max-w-6xl">
+        <EmptyList
+          title="暂时无法打开组织"
+          description={error || "组织不存在或已被删除。"}
+        >
+          <Button onClick={() => fetchData().catch(() => {})}>重新加载</Button>
+        </EmptyList>
+      </div>
+    );
+  const filtered = projects.filter((project) =>
+    `${project.name} ${project.description}`
+      .toLocaleLowerCase()
+      .includes(query.trim().toLocaleLowerCase()),
+  );
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 pb-6">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1 rounded text-xs text-zinc-500 hover:text-blue-600 focus-visible:outline-2 focus-visible:outline-blue-500"
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>创建项目</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium">项目名称</label>
-              <Input
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                placeholder="输入项目名称"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-sm font-medium">描述</label>
-              <Textarea
-                value={projectDesc}
-                onChange={(e) => setProjectDesc(e.target.value)}
-                placeholder="输入项目描述（可选）"
-                rows={3}
-              />
-            </div>
-          </div>
-          <DialogFooter>
+        <ArrowLeft className="size-3.5" />
+        所有组织
+      </Link>
+      <PageHeading
+        title={org.name}
+        description={
+          org.description || "管理团队项目，邀请成员一起维护接口文档。"
+        }
+      />
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
+        >
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p
+          role="status"
+          className="text-sm text-emerald-700 dark:text-emerald-400"
+        >
+          {notice}
+        </p>
+      )}
+      <Tabs value={tab} onValueChange={changeTab}>
+        <TabsList aria-label="组织内容" className="mb-5 h-11">
+          <TabsTrigger value="projects" className="gap-2 px-4 py-2">
+            <FolderOpen className="size-4" />
+            项目{" "}
+            <span className="text-xs text-zinc-400">{projects.length}</span>
+          </TabsTrigger>
+          <TabsTrigger value="members" className="gap-2 px-4 py-2">
+            <Users className="size-4" />
+            成员与设置{" "}
+            <span className="text-xs text-zinc-400">{org.members.length}</span>
+          </TabsTrigger>
+        </TabsList>
+        <TabsContent value="projects" className="space-y-5">
+          <div className="flex flex-wrap gap-2">
+            <ListSearch
+              value={query}
+              onChange={setQuery}
+              label="搜索组织内项目"
+              placeholder="搜索项目名称或描述"
+            />
             <Button
-              disabled={creating}
               variant="outline"
-              onClick={() => setProjectDialogOpen(false)}
+              size="icon"
+              className="size-10 shrink-0"
+              aria-label="刷新组织项目"
+              onClick={() => fetchData().catch(() => {})}
             >
-              取消
+              <RefreshCw className="size-4" />
             </Button>
-            <Button
-              disabled={creating || !projectName.trim()}
-              onClick={handleCreateProject}
+            {org.permissions?.canEdit !== false && (
+              <Button
+                className="h-10"
+                onClick={() => setProjectDialogOpen(true)}
+              >
+                <Plus className="size-4" />
+                创建项目
+              </Button>
+            )}
+          </div>
+          {filtered.length ? (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {filtered.map((project) => (
+                <ProjectCard key={project.id} project={project} />
+              ))}
+            </div>
+          ) : (
+            <EmptyList
+              title={query.trim() ? "没有匹配的项目" : "这里还没有项目"}
+              description={
+                query.trim()
+                  ? "换个关键词，或清空搜索查看所有项目。"
+                  : org.permissions?.canEdit !== false
+                    ? "创建第一个项目，开始编写或导入接口文档。"
+                    : "团队创建项目后，你可以在这里阅读接口文档。"
+              }
             >
-              {creating ? "创建中…" : "创建"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              {query.trim() ? (
+                <Button variant="outline" onClick={() => setQuery("")}>
+                  清空搜索
+                </Button>
+              ) : (
+                org.permissions?.canEdit !== false && (
+                  <Button onClick={() => setProjectDialogOpen(true)}>
+                    创建项目
+                  </Button>
+                )
+              )}
+            </EmptyList>
+          )}
+        </TabsContent>
+        <TabsContent value="members">
+          <TeamManagement organization={org} onReload={fetchData} />
+        </TabsContent>
+      </Tabs>
+      <CreateWorkspaceDialog
+        kind="项目"
+        open={projectDialogOpen}
+        onOpenChange={setProjectDialogOpen}
+        onCreate={async (input) => {
+          const created = await apiFetch<Project>("/api/projects", {
+            method: "POST",
+            body: JSON.stringify({ ...input, organizationId: id }),
+          });
+          sequence.current++;
+          setProjects((previous) => [
+            created,
+            ...previous.filter((project) => project.id !== created.id),
+          ]);
+          setQuery("");
+          setNotice(`已创建「${created.name}」`);
+        }}
+      />
     </div>
   );
 }
