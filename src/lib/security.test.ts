@@ -1,4 +1,11 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import { lookup } from "node:dns/promises";
+
+const { lookupMock } = vi.hoisted(() => ({ lookupMock: vi.fn() }));
+vi.mock("node:dns/promises", () => ({
+  lookup: lookupMock,
+  default: { lookup: lookupMock },
+}));
 import {
   isOrganizationMemberRole,
   isUserRole,
@@ -111,6 +118,12 @@ describe("security", () => {
   });
 
   describe("validateExternalUrl", () => {
+    beforeEach(() => {
+      lookupMock.mockReset();
+      lookupMock.mockResolvedValue([
+        { address: "93.184.216.34", family: 4 },
+      ]);
+    });
     it("throws for invalid URL", async () => {
       await expect(validateExternalUrl("not-a-url")).rejects.toThrow(
         "Invalid URL",
@@ -140,10 +153,33 @@ describe("security", () => {
       await expect(validateExternalUrl("http://localhost")).rejects.toThrow(
         "Loopback hosts are not allowed",
       );
-      // localhost.test is a valid public TLD, not loopback
+      expect(lookup).not.toHaveBeenCalled();
+      // .test is reserved: use controlled DNS instead of relying on real DNS.
+      // A name merely containing "localhost" is validated by its resolved IP.
       await expect(
         validateExternalUrl("http://localhost.test"),
       ).resolves.toBeDefined();
+      expect(lookup).toHaveBeenCalledWith("localhost.test", {
+        all: true,
+        verbatim: true,
+      });
+    });
+
+    it("rejects a hostname if any DNS result is private", async () => {
+      lookupMock.mockResolvedValueOnce([
+        { address: "93.184.216.34", family: 4 },
+        { address: "127.0.0.1", family: 4 },
+      ]);
+      await expect(validateExternalUrl("https://example.test")).rejects.toThrow(
+        "Private network addresses are not allowed",
+      );
+    });
+
+    it("reports DNS failures without a network-dependent test", async () => {
+      lookupMock.mockRejectedValueOnce(new Error("ENOTFOUND"));
+      await expect(validateExternalUrl("https://example.test")).rejects.toThrow(
+        "Could not resolve target host",
+      );
     });
   });
 

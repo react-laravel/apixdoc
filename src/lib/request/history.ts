@@ -115,11 +115,16 @@ export function parseHistory(source: string | null): RequestHistoryEntry[] {
 export function displayRequestUrl(source: string): string {
   try {
     const url = new URL(source);
+    // List labels and tooltips must not expose URL credentials. The original
+    // request remains intact in history so an explicit restore is lossless.
+    url.username = "";
+    url.password = "";
+    if (url.hash) url.hash = "***";
     for (const key of [...url.searchParams.keys()])
       if (/token|secret|password|api.?key|signature|auth/i.test(key))
         url.searchParams.set(key, "***");
     return url.toString();
   } catch {
-    return source;
+    return "无法显示请求地址";
   }
 }

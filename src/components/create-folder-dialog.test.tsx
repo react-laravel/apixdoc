@@ -218,7 +218,7 @@ describe("folder creation recovery", () => {
     fireEvent.change(screen.getByLabelText("文件夹名称"), {
       target: { value: "目录" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "创建", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "创建" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("连接中断");
     expect(screen.getByRole("button", { name: "取消" })).not.toBeDisabled();
   });

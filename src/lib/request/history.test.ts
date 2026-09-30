@@ -87,3 +87,23 @@ describe("request history", () => {
     expect(displayed).toContain("q=normal");
   });
 });
+
+describe("history URL display privacy", () => {
+  it("hides embedded credentials and fragments without changing the saved URL", () => {
+    const source =
+      "https://alice:password123@example.com/users?token=abc&q=orders#access_token=private";
+    const displayed = displayRequestUrl(source);
+    expect(displayed).not.toContain("alice");
+    expect(displayed).not.toContain("password123");
+    expect(displayed).not.toContain("abc");
+    expect(displayed).not.toContain("private");
+    expect(displayed).toContain("example.com/users");
+    expect(displayed).toContain("q=orders");
+    expect(source).toContain("alice:password123");
+  });
+  it("does not fall back to exposing an invalid URL", () => {
+    expect(displayRequestUrl("https://alice:password123@/bad")).not.toContain(
+      "password123",
+    );
+  });
+});
