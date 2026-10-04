@@ -21,7 +21,6 @@ import {
   UserRound,
   Building2,
   FolderOpen,
-  Braces,
   History,
   Users,
   Activity,
@@ -45,12 +44,6 @@ export function DashboardNav({ user }: DashboardNavProps) {
       label: "项目",
       icon: FolderOpen,
       active: pathname.startsWith("/dashboard/projects"),
-    },
-    {
-      href: "/dashboard/tools/json",
-      label: "JSON 工具",
-      icon: Braces,
-      active: pathname.startsWith("/dashboard/tools"),
     },
     ...(user?.canReadAudit || user?.role === "admin"
       ? [
@@ -90,7 +83,7 @@ export function DashboardNav({ user }: DashboardNavProps) {
     ));
   return (
     <header className="shrink-0 border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex min-h-16 items-center gap-3 px-3 sm:gap-6 sm:px-6">
+      <div className="flex min-h-14 items-center gap-3 px-3 sm:gap-5 sm:px-5">
         <Link
           href="/dashboard"
           aria-label="ApiX Docs 首页"

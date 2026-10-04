@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useParams } from "next/navigation";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { ArrowLeft, Plus, Users, FolderOpen, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { TeamManagement } from "@/components/team-management";
 import { CreateWorkspaceDialog } from "@/components/workspace/create-workspace-dialog";
 import {
   PageHeading,
@@ -14,46 +14,108 @@ import {
   EmptyList,
   ProjectCard,
 } from "@/components/workspace/list-ui";
-import { apiFetch } from "@/lib/api-fetch";
-import type { Organization, Project } from "@/lib/types";
+import { apiFetch, ApiError } from "@/lib/api-fetch";
+import type { Organization, ProjectListItem } from "@/lib/types";
+type OrganizationProject = Pick<
+  ProjectListItem,
+  "id" | "name" | "description" | "isPublic"
+> & { _count?: ProjectListItem["_count"] };
+const TeamManagement = dynamic(
+  () =>
+    import("@/components/team-management").then((module) => module.TeamManagement),
+  {
+    loading: () => (
+      <p role="status" className="text-sm text-zinc-500">正在加载团队管理…</p>
+    ),
+  },
+);
 export default function OrganizationDetailPage() {
   const { id } = useParams<{ id: string }>();
   return <OrganizationWorkspace key={id} id={id} />;
 }
 function OrganizationWorkspace({ id }: { id: string }) {
   const [org, setOrg] = useState<Organization | null>(null),
-    [projects, setProjects] = useState<Project[]>([]),
+    [projects, setProjects] = useState<OrganizationProject[]>([]),
+    [projectsLoaded, setProjectsLoaded] = useState(false),
     [loading, setLoading] = useState(true),
-    [error, setError] = useState(""),
+    [orgError, setOrgError] = useState(""),
+    [projectError, setProjectError] = useState(""),
     [projectDialogOpen, setProjectDialogOpen] = useState(false),
     [query, setQuery] = useState(""),
     [tab, setTab] = useState("projects"),
     [notice, setNotice] = useState("");
-  const sequence = useRef(0);
+  const request = useRef<AbortController | null>(null);
+  const lifecycle = useRef({ active: false });
   const fetchData = useCallback(async () => {
-    const version = ++sequence.current;
-    setError("");
+    if (!lifecycle.current.active) return;
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    setLoading(true);
+    setOrgError("");
+    setProjectError("");
+    setNotice("");
     try {
-      const [orgData, projectData] = await Promise.all([
-        apiFetch<Organization>(`/api/organizations/${id}`),
-        apiFetch<Project[]>(`/api/projects?organizationId=${id}`),
+      const [orgResult, projectResult] = await Promise.allSettled([
+        apiFetch<Organization>(`/api/organizations/${encodeURIComponent(id)}`, {
+          signal: controller.signal,
+        }),
+        apiFetch<OrganizationProject[]>(
+          `/api/projects?organizationId=${encodeURIComponent(id)}`,
+          { signal: controller.signal },
+        ),
       ]);
-      if (version !== sequence.current) return;
-      setOrg(orgData);
-      setProjects(projectData);
-    } catch (e) {
-      if (version === sequence.current)
-        setError(e instanceof Error ? e.message : "加载失败");
-      throw e;
+      if (controller.signal.aborted) return;
+      if (orgResult.status === "fulfilled") setOrg(orgResult.value);
+      else {
+        setOrgError(
+          orgResult.reason instanceof Error
+            ? orgResult.reason.message
+            : "组织信息加载失败",
+        );
+        if (
+          orgResult.reason instanceof ApiError &&
+          [401, 403, 404].includes(orgResult.reason.status)
+        ) {
+          setOrg(null);
+          setProjects([]);
+          setProjectsLoaded(false);
+          throw orgResult.reason;
+        }
+      }
+      if (projectResult.status === "fulfilled") {
+        setProjects(projectResult.value);
+        setProjectsLoaded(true);
+      } else {
+        setProjectError(
+          projectResult.reason instanceof Error
+            ? projectResult.reason.message
+            : "项目列表加载失败",
+        );
+        if (
+          projectResult.reason instanceof ApiError &&
+          [401, 403, 404].includes(projectResult.reason.status)
+        ) {
+          setProjects([]);
+          setProjectsLoaded(false);
+        }
+      }
+      if (orgResult.status === "rejected") throw orgResult.reason;
+      if (projectResult.status === "rejected") throw projectResult.reason;
     } finally {
-      if (version === sequence.current) setLoading(false);
+      if (!controller.signal.aborted) {
+        request.current = null;
+        setLoading(false);
+      }
     }
   }, [id]);
   useEffect(() => {
+    const current = { active: true };
+    lifecycle.current = current;
     void fetchData().catch(() => {});
-    const current = sequence;
     return () => {
-      current.current++;
+      current.active = false;
+      request.current?.abort();
     };
   }, [fetchData]);
   useEffect(() => {
@@ -71,7 +133,17 @@ function OrganizationWorkspace({ id }: { id: string }) {
       `${window.location.pathname}${window.location.search}${value === "members" ? "#members" : ""}`,
     );
   }
-  if (loading)
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return projects.filter((project) =>
+      `${project.name} ${project.description}`.toLocaleLowerCase().includes(needle),
+    );
+  }, [projects, query]);
+  const error = [
+    orgError && `组织信息加载失败：${orgError}`,
+    projectError && `项目列表加载失败：${projectError}`,
+  ].filter(Boolean).join("；");
+  if (loading && !org)
     return (
       <div className="mx-auto max-w-6xl">
         <ListSkeleton />
@@ -82,17 +154,14 @@ function OrganizationWorkspace({ id }: { id: string }) {
       <div className="mx-auto max-w-6xl">
         <EmptyList
           title="暂时无法打开组织"
-          description={error || "组织不存在或已被删除。"}
+          description={orgError || "组织不存在或已被删除。"}
         >
-          <Button onClick={() => fetchData().catch(() => {})}>重新加载</Button>
+          <Button disabled={loading} onClick={() => fetchData().catch(() => {})}>
+            重新加载
+          </Button>
         </EmptyList>
       </div>
     );
-  const filtered = projects.filter((project) =>
-    `${project.name} ${project.description}`
-      .toLocaleLowerCase()
-      .includes(query.trim().toLocaleLowerCase()),
-  );
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-6">
       <Link
@@ -109,12 +178,23 @@ function OrganizationWorkspace({ id }: { id: string }) {
         }
       />
       {error && (
-        <p
+        <div
           role="alert"
-          className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-400"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
         >
-          {error}
-        </p>
+          <span className="min-w-0 flex-1 break-words">
+            {error}
+            {projectsLoaded && projectError ? "。显示上次加载的项目，内容可能不是最新。" : ""}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={loading}
+            onClick={() => fetchData().catch(() => {})}
+          >
+            重新加载
+          </Button>
+        </div>
       )}
       {notice && (
         <p
@@ -129,7 +209,9 @@ function OrganizationWorkspace({ id }: { id: string }) {
           <TabsTrigger value="projects" className="gap-2 px-4 py-2">
             <FolderOpen className="size-4" />
             项目{" "}
-            <span className="text-xs text-zinc-400">{projects.length}</span>
+            <span className="text-xs text-zinc-400">
+              {projectsLoaded ? projects.length : "—"}
+            </span>
           </TabsTrigger>
           <TabsTrigger value="members" className="gap-2 px-4 py-2">
             <Users className="size-4" />
@@ -150,9 +232,13 @@ function OrganizationWorkspace({ id }: { id: string }) {
               size="icon"
               className="size-10 shrink-0"
               aria-label="刷新组织项目"
+              disabled={loading}
               onClick={() => fetchData().catch(() => {})}
             >
-              <RefreshCw className="size-4" />
+              <RefreshCw
+                aria-hidden
+                className={`size-4 ${loading ? "animate-spin motion-reduce:animate-none" : ""}`}
+              />
             </Button>
             {org.permissions?.canEdit !== false && (
               <Button
@@ -164,10 +250,27 @@ function OrganizationWorkspace({ id }: { id: string }) {
               </Button>
             )}
           </div>
-          {filtered.length ? (
+          <p role="status" className="text-xs text-zinc-500">
+            {loading ? "正在刷新 · " : ""}
+            {!projectsLoaded
+              ? "项目尚未加载"
+              : query.trim()
+                ? `找到 ${filtered.length} 个项目`
+                : `${projects.length} 个项目`}
+          </p>
+          {!projectsLoaded || (projectError && projects.length === 0) ? (
+            <EmptyList
+              title="项目暂时无法显示"
+              description="项目列表未能加载，请重新加载后再查看。"
+            />
+          ) : filtered.length ? (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filtered.map((project) => (
-                <ProjectCard key={project.id} project={project} />
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  stale={!!projectError}
+                />
               ))}
             </div>
           ) : (
@@ -204,13 +307,21 @@ function OrganizationWorkspace({ id }: { id: string }) {
         open={projectDialogOpen}
         onOpenChange={setProjectDialogOpen}
         onCreate={async (input) => {
-          const created = await apiFetch<Project>("/api/projects", {
+          const current = lifecycle.current;
+          if (!current.active) return;
+          const created = await apiFetch<OrganizationProject>("/api/projects", {
             method: "POST",
             body: JSON.stringify({ ...input, organizationId: id }),
           });
-          sequence.current++;
+          if (!current.active) return;
+          // A list read started before creation can omit the newly confirmed project.
+          request.current?.abort();
+          request.current = null;
+          setLoading(false);
+          setProjectsLoaded(true);
+          setProjectError("");
           setProjects((previous) => [
-            created,
+            { ...created, _count: created._count ?? { endpoints: 0, folders: 0 } },
             ...previous.filter((project) => project.id !== created.id),
           ]);
           setQuery("");

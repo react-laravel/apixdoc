@@ -134,11 +134,13 @@ export function ListSkeleton() {
 export function ProjectCard({
   project,
   organization,
+  stale = false,
 }: {
   project: Pick<ProjectListItem, "id" | "name" | "description" | "isPublic"> & {
     _count?: ProjectListItem["_count"];
   };
   organization?: { id: string; name: string };
+  stale?: boolean;
 }) {
   return (
     <article className="group relative flex min-w-0 flex-col rounded-xl border border-zinc-200 bg-white transition-colors hover:border-blue-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-blue-800">
@@ -181,6 +183,11 @@ export function ProjectCard({
             </span>
             <span>{project._count.folders} 个文件夹</span>
           </div>
+        )}
+        {stale && (
+          <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+            刷新失败 · 显示上次加载的内容
+          </p>
         )}
       </Link>
       {organization && (

@@ -54,6 +54,25 @@ function Harness({
   );
 }
 describe("versioned document editor", () => {
+  it("saves the active dirty section with the keyboard and suppresses duplicate in-flight saves", async () => {
+    let finish!: (value: EndpointDetailData) => void;
+    const save = vi.fn(() => new Promise<EndpointDetailData>((resolve) => { finish = resolve; }));
+    render(<Harness save={save} />);
+    const input = screen.getByRole("textbox", { name: "描述" });
+    fireEvent.change(input, { target: { value: "keyboard draft" } });
+    expect(screen.getByRole("tab", { name: "基本信息" }).querySelector('[title="有未保存修改"]')).not.toBeNull();
+    fireEvent.keyDown(input, { key: "s", ctrlKey: true });
+    fireEvent.keyDown(input, { key: "s", metaKey: true });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save.mock.calls[0]).toEqual([
+      expect.objectContaining({ description: "keyboard draft" }), 1, "basic",
+    ]);
+    finish({ ...initial, version: 2, description: "keyboard draft" });
+    await waitFor(() => expect(screen.getByText("所有修改已保存")).toBeVisible());
+    fireEvent.keyDown(input, { key: "s", metaKey: true });
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("tab", { name: "基本信息" }).querySelector('[title="有未保存修改"]')).toBeNull();
+  });
   it("preserves unsaved work in another section with its original base version", async () => {
     const save = vi
       .fn()

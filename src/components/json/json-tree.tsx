@@ -205,16 +205,11 @@ function TreeEntry({
 }) {
   const [limit, setLimit] = useState(100);
   const container = isContainer(entry.node);
-  const raw = source.slice(
-    entry.node.offset,
-    entry.node.offset + entry.node.length,
-  );
   const count = entry.node.children?.length ?? 0;
   const preview = container
     ? `${entry.node.type === "array" ? "[" : "{"} ${count} 项 ${entry.node.type === "array" ? "]" : "}"}`
-    : raw.length > 160
-      ? `${raw.slice(0, 160)}…`
-      : raw;
+    : source.slice(entry.node.offset, entry.node.offset + Math.min(entry.node.length, 160)) +
+      (entry.node.length > 160 ? "…" : "");
   return (
     <div className="min-w-0">
       <div className="group flex min-w-0 items-start gap-1 rounded py-1 hover:bg-zinc-100 dark:hover:bg-zinc-800">
@@ -254,7 +249,7 @@ function TreeEntry({
         </span>
         <button
           type="button"
-          onClick={() => onCopy(raw, "字段值")}
+          onClick={() => onCopy(source.slice(entry.node.offset, entry.node.offset + entry.node.length), "字段值")}
           aria-label={`复制 ${jsonPath(entry.path)} 的值`}
           title="复制字段值"
           className="shrink-0 rounded p-1.5 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-700"

@@ -486,9 +486,34 @@ export function EndpointDetail({
     normalizedName &&
     normalizedName !== normalizedPath &&
     normalizedName !== normalizedMethodPath;
+  const editorTabs: { value: Section; label: string }[] = [
+    { value: "basic", label: "基本信息" },
+    { value: "params", label: "请求参数" },
+    { value: "headers", label: "请求头" },
+    { value: "body", label: "请求体" },
+    { value: "responses", label: "响应" },
+  ];
 
   return (
-    <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-6">
+    <div
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-3 sm:p-6"
+      onKeyDown={(event) => {
+        if (
+          event.defaultPrevented ||
+          conflict ||
+          historyOpen ||
+          (event.target instanceof Element && event.target.closest('[role="dialog"]')) ||
+          event.nativeEvent.isComposing ||
+          !(event.metaKey || event.ctrlKey) ||
+          event.altKey ||
+          event.key.toLowerCase() !== "s" ||
+          !editorTabs.some((tab) => tab.value === activeTab)
+        ) return;
+        event.preventDefault();
+        if (!savingRef.current && !actionBusy && dirtySections.includes(activeTab as Section))
+          void saveSection(activeTab as Section);
+      }}
+    >
       <div className="mb-5 flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
         <MethodBadge method={method} />
         <span className="min-w-0 break-all pr-6 font-mono text-xs text-zinc-600 sm:pr-0 sm:text-sm dark:text-zinc-400">
@@ -557,6 +582,9 @@ export function EndpointDetail({
         {saveNotice && (dirty || saveNotice !== "已保存") && (
           <span className="text-zinc-500">{saveNotice}</span>
         )}
+        <span className="ml-auto hidden text-zinc-400 sm:inline">
+          ⌘ / Ctrl + S 保存当前分区
+        </span>
       </div>
       {conflict && (
         <DocumentConflictDialog
@@ -595,17 +623,22 @@ export function EndpointDetail({
             }
           }}
         >
-          <TabsList className="mb-4 w-full justify-start overflow-x-auto">
-            <TabsTrigger value="basic">基本信息</TabsTrigger>
-            <TabsTrigger value="params">请求参数</TabsTrigger>
-            <TabsTrigger value="headers">请求头</TabsTrigger>
-            <TabsTrigger value="body">请求体</TabsTrigger>
-            <TabsTrigger value="responses">响应</TabsTrigger>
-            {endpoint.sourceImportId && (
-              <TabsTrigger value="source">导入原文</TabsTrigger>
-            )}
-            <TabsTrigger value="test">在线测试</TabsTrigger>
-          </TabsList>
+          <div className="sticky top-0 z-10 -mx-3 mb-4 bg-zinc-50/95 px-3 py-2 backdrop-blur-sm sm:-mx-6 sm:px-6 dark:bg-zinc-950/95">
+            <TabsList aria-label="接口编辑分区" className="w-full justify-start overflow-x-auto">
+              {editorTabs.map((tab) => (
+                <TabsTrigger key={tab.value} value={tab.value} className="shrink-0 gap-1.5">
+                  {tab.label}
+                  {dirtySections.includes(tab.value) && (
+                    <span aria-hidden title="有未保存修改" className="size-1.5 rounded-full bg-amber-500" />
+                  )}
+                </TabsTrigger>
+              ))}
+              {endpoint.sourceImportId && (
+                <TabsTrigger value="source" className="shrink-0">导入原文</TabsTrigger>
+              )}
+              <TabsTrigger value="test" className="shrink-0">在线测试</TabsTrigger>
+            </TabsList>
+          </div>
 
           {endpoint.sourceImportId && (
             <TabsContent value="source">

@@ -41,6 +41,8 @@ function normalizeProject(project: Project): Project {
   return { ...project, folders, endpoints: [...endpoints.values()] };
 }
 
+type ProjectScope = { id: string; active: boolean };
+
 export function useProjectPage() {
   const params = useParams<{ id: string }>();
   const [project, setProject] = useState<Project | null>(null);
@@ -51,30 +53,65 @@ export function useProjectPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestVersion = useRef(0);
-  const routeId = useRef(params.id);
+  const projectRequest = useRef<AbortController | null>(null);
+  const routeScope = useRef<ProjectScope>({ id: params.id, active: false });
+  const selectionVersion = useRef(0);
+  const cancelProjectRequest = useCallback(() => {
+    requestVersion.current += 1;
+    projectRequest.current?.abort();
+    projectRequest.current = null;
+  }, []);
+
   useLayoutEffect(() => {
-    routeId.current = params.id;
-  }, [params.id]);
+    const scope = { id: params.id, active: true };
+    routeScope.current = scope;
+    selectionVersion.current += 1;
+    return () => {
+      scope.active = false;
+      cancelProjectRequest();
+    };
+  }, [params.id, cancelProjectRequest]);
+
+  const getScope = useCallback(
+    (projectId?: string) => {
+      const scope = routeScope.current;
+      return scope.active && scope.id === params.id &&
+        (!projectId || scope.id === projectId) ? scope : null;
+    },
+    [params.id],
+  );
+
+  const isCurrentScope = useCallback(
+    (scope: ProjectScope) => scope.active && routeScope.current === scope,
+    [],
+  );
 
   const fetchProject = useCallback(async () => {
-    if (routeId.current !== params.id) return;
+    const scope = getScope();
+    if (!scope) return;
+    cancelProjectRequest();
+    const controller = new AbortController();
+    projectRequest.current = controller;
     const version = ++requestVersion.current;
     setLoadError(null);
     try {
-      const data = await apiFetch<Project>(`/api/projects/${params.id}`);
-      if (version !== requestVersion.current || routeId.current !== params.id)
-        return;
+      const data = await apiFetch<Project>(`/api/projects/${scope.id}`, {
+        signal: controller.signal,
+      });
+      if (version !== requestVersion.current || !isCurrentScope(scope)) return;
       setProject(data ? normalizeProject(data) : null);
     } catch (error) {
-      if (version !== requestVersion.current || routeId.current !== params.id)
-        return;
+      if (version !== requestVersion.current || !isCurrentScope(scope)) return;
       setLoadError(
         error instanceof Error ? error.message : "加载项目失败，请重试",
       );
     } finally {
-      if (version === requestVersion.current) setLoading(false);
+      if (version === requestVersion.current && isCurrentScope(scope)) {
+        projectRequest.current = null;
+        setLoading(false);
+      }
     }
-  }, [params.id]);
+  }, [getScope, isCurrentScope, cancelProjectRequest]);
 
   useEffect(() => {
     setLoading(true);
@@ -82,19 +119,25 @@ export function useProjectPage() {
     setSelectedEndpointId(null);
     setSaveError(null);
     fetchProject();
-    return () => {
-      requestVersion.current += 1;
-    };
   }, [fetchProject]);
 
-  const allEndpoints = useMemo(() => project?.endpoints ?? [], [project]);
+  const allEndpoints = useMemo(
+    () => project?.endpoints ?? [],
+    [project?.endpoints],
+  );
+  const endpointsById = useMemo(
+    () => new Map(allEndpoints.map((endpoint) => [endpoint.id, endpoint])),
+    [allEndpoints],
+  );
 
   const selectedEndpoint = useMemo(
-    () => allEndpoints.find((ep) => ep.id === selectedEndpointId) ?? null,
-    [allEndpoints, selectedEndpointId],
+    () =>
+      selectedEndpointId ? endpointsById.get(selectedEndpointId) ?? null : null,
+    [endpointsById, selectedEndpointId],
   );
 
   const handleSelectEndpoint = useCallback((id: string | null) => {
+    selectionVersion.current += 1;
     setSaveError(null);
     setSelectedEndpointId(id);
   }, []);
@@ -104,7 +147,8 @@ export function useProjectPage() {
       folderUpdates: FolderUpdate[],
       endpointUpdates: EndpointUpdate[],
     ) => {
-      if (!project) return;
+      const scope = getScope(project?.id);
+      if (!project || !scope) return;
 
       setSaveError(null);
       try {
@@ -117,18 +161,21 @@ export function useProjectPage() {
           }),
         });
       } catch (error) {
+        if (!isCurrentScope(scope)) return;
         setSaveError(
           error instanceof Error ? error.message : "排序失败，请重试",
         );
       }
+      if (!isCurrentScope(scope)) return;
       await fetchProject();
     },
-    [project, fetchProject],
+    [project, fetchProject, getScope, isCurrentScope],
   );
 
   const handleCreateFolder = useCallback(
     async (name: string): Promise<string | null> => {
-      if (!project) return null;
+      const scope = getScope(project?.id);
+      if (!project || !scope) return null;
 
       const normalizedName = name.trim();
       if (!normalizedName) return null;
@@ -151,26 +198,33 @@ export function useProjectPage() {
             projectId: project.id,
           }),
         });
+        if (!isCurrentScope(scope)) return null;
+        cancelProjectRequest();
         setProject((prev) =>
-          prev
+          prev?.id === project.id
             ? {
                 ...prev,
-                layoutVersion: data.layoutVersion,
+                layoutVersion: Math.max(
+                  prev.layoutVersion ?? 0,
+                  data.layoutVersion ?? 0,
+                ),
                 folders: [...prev.folders, { id: data.id, name: data.name }],
               }
             : prev,
         );
         return null;
-      } catch {
-        return "创建文件夹失败";
+      } catch (error) {
+        if (!isCurrentScope(scope)) return null;
+        return error instanceof Error ? error.message : "创建文件夹失败";
       }
     },
-    [project],
+    [project, getScope, isCurrentScope, cancelProjectRequest],
   );
 
   const handleDeleteFolder = useCallback(
     async (folderId: string) => {
-      if (!project) return;
+      const scope = getScope(project?.id);
+      if (!project || !scope) return;
 
       if (
         !window.confirm(
@@ -187,19 +241,22 @@ export function useProjectPage() {
           body: JSON.stringify({ version: project.layoutVersion }),
         });
       } catch (error) {
+        if (!isCurrentScope(scope)) return false;
         setSaveError(error instanceof Error ? error.message : "删除文件夹失败");
         return false;
       }
 
+      if (!isCurrentScope(scope)) return false;
       await fetchProject();
       return true;
     },
-    [project, fetchProject],
+    [project, fetchProject, getScope, isCurrentScope],
   );
 
   const handleRenameFolder = useCallback(
     async (folderId: string, newName: string) => {
-      if (!project) return;
+      const scope = getScope(project?.id);
+      if (!project || !scope) return;
       setSaveError(null);
       try {
         await apiFetch(`/api/folders/${folderId}`, {
@@ -209,12 +266,14 @@ export function useProjectPage() {
             version: project.layoutVersion,
           }),
         });
+        if (!isCurrentScope(scope)) return;
         await fetchProject();
       } catch (error) {
+        if (!isCurrentScope(scope)) return;
         setSaveError(error instanceof Error ? error.message : "重命名失败");
       }
     },
-    [project, fetchProject],
+    [project, fetchProject, getScope, isCurrentScope],
   );
 
   const handleCreateEndpoint = useCallback(
@@ -225,9 +284,11 @@ export function useProjectPage() {
       description: string;
       folderId: string | null;
     }): Promise<{ error?: string }> => {
-      if (!data.path.trim() || !project) {
+      const scope = getScope(project?.id);
+      if (!data.path.trim() || !project || !scope) {
         return { error: "请填写接口路径" };
       }
+      const selection = selectionVersion.current;
 
       try {
         const created = await apiFetch<Endpoint>("/api/endpoints", {
@@ -241,27 +302,36 @@ export function useProjectPage() {
             folderId: data.folderId,
           }),
         });
+        if (!isCurrentScope(scope)) return {};
+        cancelProjectRequest();
         setProject((prev) =>
-          prev && (!created.projectId || prev.id === created.projectId)
+          prev?.id === project.id &&
+          (!created.projectId || prev.id === created.projectId)
             ? {
                 ...prev,
-                layoutVersion:
-                  created.projectLayoutVersion ?? prev.layoutVersion,
+                layoutVersion: Math.max(
+                  created.projectLayoutVersion ?? 0,
+                  prev.layoutVersion ?? 0,
+                ),
                 endpoints: [...prev.endpoints, created],
               }
             : prev,
         );
-        setSelectedEndpointId(created.id);
+        if (selectionVersion.current === selection)
+          setSelectedEndpointId(created.id);
         return { error: undefined };
       } catch (err) {
+        if (!isCurrentScope(scope)) return {};
         return { error: err instanceof Error ? err.message : "创建接口失败" };
       }
     },
-    [project],
+    [project, getScope, isCurrentScope, cancelProjectRequest],
   );
 
   const handleCopyEndpoint = useCallback(async () => {
-    if (!project || !selectedEndpointId) return false;
+    const scope = getScope(project?.id);
+    if (!project || !selectedEndpointId || !scope) return false;
+    const selection = selectionVersion.current;
     setSaveError(null);
     try {
       const created = await apiFetch<Endpoint>(
@@ -274,26 +344,35 @@ export function useProjectPage() {
           }),
         },
       );
+      if (!isCurrentScope(scope)) return false;
+      cancelProjectRequest();
       setProject((previous) =>
         previous?.id === project.id
           ? {
               ...previous,
-              layoutVersion:
-                created.projectLayoutVersion ?? previous.layoutVersion,
+              layoutVersion: Math.max(
+                created.projectLayoutVersion ?? 0,
+                previous.layoutVersion ?? 0,
+              ),
               endpoints: [...previous.endpoints, created],
             }
           : previous,
       );
-      setSelectedEndpointId(created.id);
+      if (selectionVersion.current === selection)
+        setSelectedEndpointId(created.id);
       return true;
     } catch (error) {
+      if (!isCurrentScope(scope)) return false;
       setSaveError(error instanceof Error ? error.message : "复制接口失败");
       return false;
     }
-  }, [project, selectedEndpointId]);
+  }, [
+    project, selectedEndpointId, getScope, isCurrentScope, cancelProjectRequest,
+  ]);
 
   const handleDeleteEndpoint = useCallback(async () => {
-    if (!project || !selectedEndpointId) return false;
+    const scope = getScope(project?.id);
+    if (!project || !selectedEndpointId || !scope) return false;
     const endpoint = project.endpoints.find(
       (item) => item.id === selectedEndpointId,
     );
@@ -312,49 +391,70 @@ export function useProjectPage() {
           body: JSON.stringify({ version: endpoint?.version }),
         },
       );
+      if (!isCurrentScope(scope)) return false;
+      cancelProjectRequest();
       setProject((previous) =>
         previous?.id === project.id
           ? {
               ...previous,
-              layoutVersion: removed.layoutVersion,
+              layoutVersion: Math.max(
+                removed.layoutVersion,
+                previous.layoutVersion ?? 0,
+              ),
               endpoints: previous.endpoints.filter(
                 (item) => item.id !== selectedEndpointId,
               ),
             }
           : previous,
       );
-      setSelectedEndpointId(null);
+      setSelectedEndpointId((current) =>
+        current === selectedEndpointId ? null : current,
+      );
       return true;
     } catch (error) {
+      if (!isCurrentScope(scope)) return false;
       setSaveError(error instanceof Error ? error.message : "删除接口失败");
       return false;
     }
-  }, [project, selectedEndpointId]);
+  }, [
+    project, selectedEndpointId, getScope, isCurrentScope, cancelProjectRequest,
+  ]);
 
-  const applyEndpoint = useCallback((updated: Endpoint) => {
-    if (updated.projectId && updated.projectId !== routeId.current) return;
-    setProject((previous) =>
-      previous && (!updated.projectId || previous.id === updated.projectId)
-        ? {
-            ...previous,
-            layoutVersion:
-              updated.projectLayoutVersion ?? previous.layoutVersion,
-            endpoints: previous.endpoints.some((e) => e.id === updated.id)
-              ? previous.endpoints.map((e) =>
-                  e.id === updated.id ? updated : e,
-                )
-              : [...previous.endpoints, updated],
-          }
-        : previous,
-    );
-  }, []);
+  const applyEndpoint = useCallback(
+    (updated: Endpoint, scope: ProjectScope, projectId: string) => {
+      if (
+        !isCurrentScope(scope) ||
+        (updated.projectId && updated.projectId !== projectId)
+      ) return;
+      // A read started before this acknowledgement may contain an older snapshot.
+      cancelProjectRequest();
+      setProject((previous) => {
+        if (previous?.id !== projectId) return previous;
+        const existing = previous.endpoints.find((e) => e.id === updated.id);
+        if ((existing?.version ?? 0) > (updated.version ?? 0)) return previous;
+        return {
+          ...previous,
+          layoutVersion: Math.max(
+            updated.projectLayoutVersion ?? 0,
+            previous.layoutVersion ?? 0,
+          ),
+          endpoints: existing
+            ? previous.endpoints.map((e) => e.id === updated.id ? updated : e)
+            : [...previous.endpoints, updated],
+        };
+      });
+    },
+    [isCurrentScope, cancelProjectRequest],
+  );
   const handleSaveEndpoint = useCallback(
     async (
       data: Partial<Endpoint>,
       version: number,
       section: DocumentSection,
     ) => {
-      if (!project || !selectedEndpointId) throw new Error("请先选择接口");
+      const scope = getScope(project?.id);
+      if (!project || !selectedEndpointId || !scope)
+        throw new Error("请先选择接口");
       setSaveError(null);
       const suffix = section === "basic" ? "" : `/${section}`;
       const updated = await apiFetch<Endpoint>(
@@ -364,35 +464,53 @@ export function useProjectPage() {
           body: JSON.stringify({ ...data, version }),
         },
       );
-      applyEndpoint(updated);
+      applyEndpoint(updated, scope, project.id);
       return updated;
     },
-    [project, selectedEndpointId, applyEndpoint],
+    [project, selectedEndpointId, applyEndpoint, getScope],
   );
   const handleDocumentRestored = useCallback(
     async (updated: Endpoint) => {
-      if (updated.projectId && updated.projectId !== routeId.current) return;
-      applyEndpoint(updated);
+      const scope = getScope(project?.id);
+      if (
+        !project || !scope ||
+        (updated.projectId && updated.projectId !== project.id)
+      ) return;
+      applyEndpoint(updated, scope, project.id);
       setSelectedEndpointId(updated.id);
       await fetchProject();
     },
-    [applyEndpoint, fetchProject],
+    [project, applyEndpoint, fetchProject, getScope],
   );
 
   const handleSaveSettings = useCallback(
     async (data: Partial<Project>, version: number) => {
-      if (!project) throw new Error("项目尚未加载");
+      const scope = getScope(project?.id);
+      if (!project || !scope) throw new Error("项目尚未加载");
       setSaveError(null);
       const updated = await apiFetch<Project>(`/api/projects/${project.id}`, {
         method: "PUT",
         body: JSON.stringify({ ...data, version }),
       });
-      setProject((previous) =>
-        previous?.id === project.id ? { ...previous, ...updated } : previous,
-      );
+      if (isCurrentScope(scope)) {
+        cancelProjectRequest();
+        setProject((previous) =>
+          previous?.id === project.id &&
+          (previous.settingsVersion ?? 0) <= (updated.settingsVersion ?? 0)
+            ? {
+                ...previous,
+                ...updated,
+                layoutVersion: Math.max(
+                  previous.layoutVersion ?? 0,
+                  updated.layoutVersion ?? 0,
+                ),
+              }
+            : previous,
+        );
+      }
       return updated;
     },
-    [project],
+    [project, getScope, isCurrentScope, cancelProjectRequest],
   );
 
   return {

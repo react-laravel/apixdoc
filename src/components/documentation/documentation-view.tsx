@@ -1,17 +1,14 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, ChevronRight, Copy, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, ChevronRight, Copy, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MethodBadge } from "@/components/method-badge";
 import { JsonWorkbench } from "@/components/json/json-workbench";
 import { Markdown } from "./markdown";
-import {
-  collectProjectEndpoints,
-  folderPath,
-} from "@/lib/documentation/navigation";
+import { createDocumentationNavigation } from "@/lib/documentation/navigation";
 import { isJsonContentType } from "@/lib/json-document";
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -27,30 +24,60 @@ export function DocumentationView({
   embedded?: boolean;
   canOpenWorkspace?: boolean;
 }) {
-  const endpoints = useMemo(() => collectProjectEndpoints(project), [project]);
-  const [selectedId, setSelectedId] = useState(
-    initialEndpoint && endpoints.some((item) => item.id === initialEndpoint)
-      ? initialEndpoint
-      : endpoints[0]?.id || "",
+  const { endpoints, endpointById, entries } = useMemo(
+    () => createDocumentationNavigation(project),
+    [project],
   );
+  const initialId = initialEndpoint && endpointById.has(initialEndpoint)
+    ? initialEndpoint
+    : endpoints[0]?.id || "";
+  const [selection, setSelection] = useState({
+    projectId: project.id,
+    initialEndpoint,
+    id: initialId,
+  });
   const [query, setQuery] = useState("");
-  const [mobileDetail, setMobileDetail] = useState(!!initialEndpoint);
-  const [notice, setNotice] = useState("");
-  const selected = endpoints.find((item) => item.id === selectedId);
-  const pathOf = (folderId: string | null) => {
-    try {
-      return folderPath(folderId, project.folders);
-    } catch {
-      return ["目录结构异常"];
-    }
-  };
-  const filtered = endpoints.filter((item) =>
-    `${item.method} ${item.path} ${item.name} ${pathOf(item.folderId).join(" ")}`
-      .toLowerCase()
-      .includes(query.trim().toLowerCase()),
+  const [mobileDetail, setMobileDetail] = useState(
+    !!initialEndpoint && endpointById.has(initialEndpoint),
   );
+  // Client navigation can replace the linked endpoint without remounting the
+  // reader. Reset only for a new route target; normal project refreshes keep it.
+  if (selection.projectId !== project.id || selection.initialEndpoint !== initialEndpoint) {
+    setSelection({ projectId: project.id, initialEndpoint, id: initialId });
+    setMobileDetail(!!initialEndpoint && endpointById.has(initialEndpoint));
+  }
+  const [notice, setNotice] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const directoryRef = useRef<HTMLElement | null>(null);
+  const mainRef = useRef<HTMLElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const focusDetail = useRef(false);
+  const selected = endpointById.get(selection.id) ?? endpoints[0];
+  const activeEndpointId = selected?.id ?? "";
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = useMemo(
+    () => entries.filter((item) => item.searchText.includes(normalizedQuery)),
+    [entries, normalizedQuery],
+  );
+  useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = 0;
+    if (focusDetail.current) {
+      headingRef.current?.focus({ preventScroll: true });
+      focusDetail.current = false;
+    }
+  }, [activeEndpointId, mobileDetail]);
+  const clearSearch = () => {
+    setQuery("");
+    searchRef.current?.focus();
+  };
   const select = (id: string) => {
-    setSelectedId(id);
+    focusDetail.current = true;
+    if (id === activeEndpointId && mobileDetail) {
+      if (mainRef.current) mainRef.current.scrollTop = 0;
+      headingRef.current?.focus({ preventScroll: true });
+      focusDetail.current = false;
+    }
+    setSelection({ projectId: project.id, initialEndpoint, id });
     setMobileDetail(true);
     if (!embedded) {
       const url = new URL(window.location.href);
@@ -66,7 +93,7 @@ export function DocumentationView({
       if (project.isPublicationPreview) url.searchParams.set("review", "1");
       else if (project.isDraftPreview || embedded)
         url.searchParams.set("preview", "1");
-      if (selectedId) url.searchParams.set("endpoint", selectedId);
+      if (activeEndpointId) url.searchParams.set("endpoint", activeEndpointId);
       await navigator.clipboard.writeText(url.toString());
       setNotice("文档链接已复制");
     } catch {
@@ -80,23 +107,23 @@ export function DocumentationView({
         embedded ? "h-full" : "h-dvh",
       )}
     >
-      <header className="flex shrink-0 flex-wrap items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800 sm:px-6">
-        <BookOpen className="size-6 shrink-0 text-blue-600" />
-        <div className="min-w-0 flex-1 basis-[calc(100%-40px)] sm:basis-auto">
-          <h1 className="truncate text-base font-semibold">{project.name}</h1>
-          <p className="mt-1 text-xs text-zinc-500">
+      <header className="flex shrink-0 items-center gap-2 border-b border-zinc-200 px-3 py-2 dark:border-zinc-800 sm:px-5">
+        <BookOpen aria-hidden className="size-5 shrink-0 text-blue-600" />
+        <div className="min-w-0 flex-1">
+          <h1 title={project.name} className="truncate text-sm font-semibold">{project.name}</h1>
+          <p className="mt-0.5 truncate text-[11px] text-zinc-500">
             API 文档 · {endpoints.length} 个接口
             {project.publication ? ` · ${project.publication.title}` : ""}
           </p>
         </div>
-        <Badge variant="outline">
+        <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">
           {project.isPublicationPreview
             ? "内部发布记录"
             : project.isPublic
               ? "公开文档"
               : "团队文档"}
         </Badge>
-        <Button variant="ghost" size="sm" onClick={copyLink}>
+        <Button variant="ghost" size="sm" className="shrink-0" onClick={copyLink}>
           <Copy className="size-3.5" />
           {project.isPublicationPreview || project.isDraftPreview || embedded
             ? "复制内部链接"
@@ -105,9 +132,10 @@ export function DocumentationView({
         {canOpenWorkspace && !embedded && (
           <Link
             href={`/dashboard/projects/${project.id}`}
-            className="text-xs text-blue-600"
+            aria-label="打开工作台"
+            className="shrink-0 text-xs text-blue-600"
           >
-            打开工作台
+            <span className="hidden sm:inline">打开工作台</span>
             <ChevronRight className="inline size-3" />
           </Link>
         )}
@@ -162,22 +190,50 @@ export function DocumentationView({
           <div className="relative p-3">
             <Search className="pointer-events-none absolute left-5 top-5 size-4 text-zinc-400" />
             <Input
+              ref={searchRef}
               aria-label="搜索文档接口"
               placeholder="搜索接口、路径或目录"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              className="pl-8 text-xs"
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                if (event.key === "Escape") clearSearch();
+                if (filtered.length && event.key === "Enter") {
+                  event.preventDefault();
+                  select(filtered[0].endpoint.id);
+                }
+                if (filtered.length && event.key === "ArrowDown") {
+                  event.preventDefault();
+                  directoryRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+                }
+              }}
+              className="pl-8 pr-8 text-xs"
             />
+            {query && (
+              <button
+                type="button"
+                aria-label="清空文档搜索"
+                onClick={clearSearch}
+                className="absolute right-5 top-5 rounded text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+              >
+                <X aria-hidden className="size-4" />
+              </button>
+            )}
           </div>
-          <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-4">
-            {filtered.map((endpoint) => (
+          {normalizedQuery && (
+            <p role="status" className="px-4 pb-2 text-[11px] text-zinc-500">找到 {filtered.length} 个接口</p>
+          )}
+          <nav ref={directoryRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain px-2 pb-4">
+            {filtered.map(({ endpoint, folderPath }) => (
               <button
                 key={endpoint.id}
+                type="button"
+                title={`${endpoint.method} ${endpoint.path}\n${folderPath}`}
                 onClick={() => select(endpoint.id)}
-                aria-current={selectedId === endpoint.id ? "page" : undefined}
+                aria-current={activeEndpointId === endpoint.id ? "page" : undefined}
                 className={cn(
-                  "flex w-full min-w-0 items-start gap-2 rounded-lg p-3 text-left",
-                  selectedId === endpoint.id
+                  "flex w-full min-w-0 items-start gap-2 rounded-lg p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                  activeEndpointId === endpoint.id
                     ? "bg-blue-50 dark:bg-blue-950/50"
                     : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
                 )}
@@ -191,21 +247,23 @@ export function DocumentationView({
                     {endpoint.path}
                   </span>
                   <span className="mt-1 block truncate text-[10px] text-zinc-400">
-                    {pathOf(endpoint.folderId).join(" / ") || "未分组"}
+                    {folderPath}
                   </span>
                 </span>
               </button>
             ))}
             {!filtered.length && (
               <p className="px-3 py-8 text-center text-xs text-zinc-500">
-                没有匹配的接口
+                {endpoints.length ? "没有匹配的接口" : "项目还没有接口文档"}
               </p>
             )}
           </nav>
         </aside>
         <main
+          ref={mainRef}
+          aria-label="接口文档内容"
           className={cn(
-            "min-h-0 min-w-0 flex-1 overflow-y-auto",
+            "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain",
             !mobileDetail && "hidden md:block",
           )}
         >
@@ -219,7 +277,7 @@ export function DocumentationView({
               文档目录
             </Button>
           </div>
-          <div className="mx-auto max-w-4xl space-y-7 p-4 sm:p-8">
+          <div key={activeEndpointId} className="mx-auto max-w-4xl space-y-7 p-4 sm:p-8">
             {selected ? (
               <>
                 <div>
@@ -229,7 +287,7 @@ export function DocumentationView({
                       {selected.path}
                     </code>
                   </div>
-                  <h2 className="text-2xl font-semibold">
+                  <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-semibold outline-none">
                     {selected.name || selected.path}
                   </h2>
                   {(selected.serverUrl || project.baseUrl) && (
@@ -345,16 +403,13 @@ export function DocumentationView({
                     )}
                     {selected.requestBody.schema &&
                       selected.requestBody.schema !== "{}" && (
-                        <details>
-                          <summary className="cursor-pointer text-xs text-zinc-500">
-                            查看请求结构
-                          </summary>
+                        <DeferredDetails summary="查看请求结构">
                           <JsonWorkbench
                             label="请求结构"
                             value={selected.requestBody.schema}
                             readOnly
                           />
-                        </details>
+                        </DeferredDetails>
                       )}
                   </section>
                 )}
@@ -390,16 +445,13 @@ export function DocumentationView({
                           />
                         )}
                         {response.schema && response.schema !== "{}" && (
-                          <details>
-                            <summary className="cursor-pointer text-xs text-zinc-500">
-                              查看响应结构
-                            </summary>
+                          <DeferredDetails summary="查看响应结构">
                             <JsonWorkbench
                               label={`响应结构 ${response.statusKey || response.statusCode}`}
                               value={response.schema}
                               readOnly
                             />
-                          </details>
+                          </DeferredDetails>
                         )}
                       </div>
                     ))
@@ -426,13 +478,12 @@ export function DocumentationView({
                 </p>
                 {Object.entries(project.documentationSchemas || {}).map(
                   ([name, schema]) => (
-                    <details
+                    <DeferredDetails
                       key={name}
                       className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+                      summary={name}
+                      model
                     >
-                      <summary className="cursor-pointer font-mono text-sm">
-                        {name}
-                      </summary>
                       <div className="mt-3">
                         <JsonWorkbench
                           label={`数据模型 ${name}`}
@@ -440,7 +491,7 @@ export function DocumentationView({
                           readOnly
                         />
                       </div>
-                    </details>
+                    </DeferredDetails>
                   ),
                 )}
               </section>
@@ -449,5 +500,27 @@ export function DocumentationView({
         </main>
       </div>
     </div>
+  );
+}
+
+function DeferredDetails({
+  summary,
+  children,
+  className,
+  model = false,
+}: {
+  summary: string;
+  children: ReactNode;
+  className?: string;
+  model?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className={className} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary className={model ? "cursor-pointer font-mono text-sm" : "cursor-pointer text-xs text-zinc-500"}>
+        {summary}
+      </summary>
+      {open && children}
+    </details>
   );
 }

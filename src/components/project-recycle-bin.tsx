@@ -1,6 +1,7 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
-import { History, RotateCcw, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { History, Loader2, RotateCcw, Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,12 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { DocumentHistory } from "./document-history";
 import { ACTION_LABELS } from "@/lib/documents/model";
 import type { Endpoint } from "@/lib/types";
+const DocumentHistory = dynamic(
+  () => import("./document-history").then((module) => module.DocumentHistory),
+  { loading: () => <p role="status" className="p-3 text-sm text-zinc-500">正在加载版本历史…</p> },
+);
 type Recycled = Pick<
   Endpoint,
   "id" | "name" | "method" | "path" | "version"
@@ -23,10 +27,12 @@ export function ProjectRecycleBin({
   projectId,
   beforeRestore,
   onRestored,
+  compact = false,
 }: {
   projectId: string;
   beforeRestore: () => boolean;
   onRestored: (endpoint: Endpoint) => void;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Recycled[]>([]);
@@ -34,10 +40,17 @@ export function ProjectRecycleBin({
   const [next, setNext] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Recycled | null>(null);
+  const request = useRef<AbortController | null>(null);
   const load = useCallback(
-    async (cursor?: string, signal?: AbortSignal) => {
+    async (cursor?: string) => {
+      if (cursor && request.current) return;
+      request.current?.abort();
+      const controller = new AbortController();
+      request.current = controller;
+      const current = () => request.current === controller && !controller.signal.aborted;
       setBusy(true);
       setError("");
       try {
@@ -47,34 +60,54 @@ export function ProjectRecycleBin({
           items: Recycled[];
           total: number;
           next: string | null;
-        }>(`/api/projects/${projectId}/recycle-bin?${query}`, { signal });
-        if (signal?.aborted) return;
+        }>(`/api/projects/${projectId}/recycle-bin?${query}`, { signal: controller.signal });
+        if (!current()) return;
         setItems((previous) =>
           cursor ? [...previous, ...data.items] : data.items,
         );
         setTotal(data.total);
         setNext(data.next);
+        setLoaded(true);
       } catch (e) {
-        if (!signal?.aborted)
+        if (current())
           setError(e instanceof Error ? e.message : "回收站加载失败");
       } finally {
-        if (!signal?.aborted) setBusy(false);
+        if (current()) {
+          request.current = null;
+          setBusy(false);
+        }
       }
     },
     [projectId, search],
   );
   useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
+    if (!open || selected) return;
+    setItems([]);
+    setTotal(0);
+    setNext(null);
+    setLoaded(false);
+    setError("");
+    setBusy(true);
     const timer = window.setTimeout(
-      () => load(undefined, controller.signal),
+      () => load(),
       200,
     );
     return () => {
       clearTimeout(timer);
-      controller.abort();
+      request.current?.abort();
+      request.current = null;
     };
-  }, [open, load]);
+  }, [open, selected, load]);
+  useEffect(() => {
+    setSelected(null);
+    setOpen(false);
+  }, [projectId]);
+  const close = () => {
+    request.current?.abort();
+    request.current = null;
+    setBusy(false);
+    setOpen(false);
+  };
   const restored = (endpoint: Endpoint) => {
     onRestored(endpoint);
     setSelected(null);
@@ -82,13 +115,13 @@ export function ProjectRecycleBin({
   };
   return (
     <>
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="ghost" aria-label="回收站" title="回收站" className={compact ? "shrink-0 md:px-2 lg:px-3" : undefined} onClick={() => setOpen(true)}>
         <Trash2 className="size-3.5" />
-        回收站
+        <span className={compact ? "md:hidden lg:inline" : undefined}>回收站</span>
       </Button>
       <Dialog
         open={open && !selected}
-        onOpenChange={(value) => !busy && setOpen(value)}
+        onOpenChange={(value) => value ? setOpen(true) : close()}
       >
         <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
@@ -103,8 +136,14 @@ export function ProjectRecycleBin({
             onChange={(e) => setSearch(e.target.value)}
             placeholder="搜索名称或路径"
           />
-          <p className="text-xs text-zinc-500">共 {total} 个接口</p>
-          <ul className="space-y-2">
+          {loaded && <p className="text-xs text-zinc-500">共 {total} 个接口</p>}
+          {busy && (
+            <p role="status" className="flex items-center gap-2 text-sm text-zinc-500">
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+              正在加载回收站…
+            </p>
+          )}
+          <ul className="space-y-2" aria-label="已删除接口" aria-busy={busy}>
             {items.map((item) => (
               <li
                 key={item.id}
@@ -135,7 +174,7 @@ export function ProjectRecycleBin({
               </li>
             ))}
           </ul>
-          {!busy && !items.length && (
+          {loaded && !busy && !error && !items.length && (
             <p className="py-8 text-center text-sm text-zinc-500">
               回收站中没有匹配的接口
             </p>
@@ -157,9 +196,9 @@ export function ProjectRecycleBin({
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => load()}>
               <RotateCcw className="size-3.5" />
-              刷新
+              {error ? "重试" : "刷新"}
             </Button>
-            <Button disabled={busy} onClick={() => setOpen(false)}>
+            <Button onClick={close}>
               关闭
             </Button>
           </DialogFooter>

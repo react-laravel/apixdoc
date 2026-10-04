@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { apiFetch } from "@/lib/api-fetch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import {
   type DocumentSnapshot,
   type RevisionSummary,
 } from "@/lib/documents/model";
-import { differences } from "@/lib/documents/merge";
+import { differences, type FieldConflict } from "@/lib/documents/merge";
 import { readableField, RevisionValue } from "./document-conflict";
 import type { Endpoint } from "@/lib/types";
 interface Detail {
@@ -26,6 +27,28 @@ interface Detail {
   version: number;
   deletedAt: string | null;
 }
+type Operation = "load" | "select" | "restore" | "download";
+
+function RevisionDifference({ field }: { field: FieldConflict }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <details
+      className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700"
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer break-all text-sm">
+        {readableField(field.path)}
+      </summary>
+      {expanded && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <RevisionValue label="当前内容" value={field.base} />
+          <RevisionValue label="选中版本" value={field.current} />
+        </div>
+      )}
+    </details>
+  );
+}
+
 export function DocumentHistory({
   endpointId,
   beforeRestore,
@@ -40,57 +63,99 @@ export function DocumentHistory({
   const [items, setItems] = useState<RevisionSummary[]>([]);
   const [next, setNext] = useState<number | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [operation, setOperation] = useState<Operation | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [path, setPath] = useState("");
+  const request = useRef<AbortController | null>(null);
+  const activeOperation = useRef<Operation | null>(null);
+  const busy = operation !== null;
+  const restoring = operation === "restore";
+  const begin = useCallback((nextOperation: Operation) => {
+    request.current?.abort();
+    const controller = new AbortController();
+    request.current = controller;
+    activeOperation.current = nextOperation;
+    setOperation(nextOperation);
+    setError("");
+    return controller;
+  }, []);
+  const current = (controller: AbortController) =>
+    request.current === controller && !controller.signal.aborted;
+  const finish = (controller: AbortController) => {
+    if (!current(controller)) return;
+    request.current = null;
+    activeOperation.current = null;
+    setOperation(null);
+  };
   const load = useCallback(
     async (before?: number) => {
-      setBusy(true);
-      setError("");
+      if (activeOperation.current === "restore" || (before && request.current)) return;
+      const controller = begin("load");
       try {
         const data = await apiFetch<{
           items: RevisionSummary[];
           next: number | null;
         }>(
           `/api/endpoints/${endpointId}/history${before ? `?before=${before}` : ""}`,
+          { signal: controller.signal },
         );
+        if (request.current !== controller || controller.signal.aborted) return;
         setItems((prev) => (before ? [...prev, ...data.items] : data.items));
         setNext(data.next);
+        setLoaded(true);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "历史加载失败");
+        if (request.current === controller && !controller.signal.aborted)
+          setError(e instanceof Error ? e.message : "历史加载失败");
       } finally {
-        setBusy(false);
+        if (request.current === controller && !controller.signal.aborted) {
+          request.current = null;
+          activeOperation.current = null;
+          setOperation(null);
+        }
       }
     },
-    [endpointId],
+    [endpointId, begin],
   );
   useEffect(() => {
-    load();
+    setItems([]);
+    setNext(null);
+    setDetail(null);
+    setLoaded(false);
+    setPath("");
+    void load();
+    return () => {
+      request.current?.abort();
+      request.current = null;
+      activeOperation.current = null;
+    };
   }, [load]);
   const select = async (id: string) => {
-    setBusy(true);
-    setError("");
+    if (activeOperation.current === "restore") return;
+    const controller = begin("select");
     try {
       const data = await apiFetch<Detail>(
         `/api/endpoints/${endpointId}/history/${id}`,
+        { signal: controller.signal },
       );
+      if (!current(controller)) return;
       setDetail(data);
       setPath(data.snapshot.path);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "版本加载失败");
+      if (current(controller)) setError(e instanceof Error ? e.message : "版本加载失败");
     } finally {
-      setBusy(false);
+      finish(controller);
     }
   };
   const restore = async () => {
-    if (!detail || busy || !beforeRestore()) return;
-    setBusy(true);
-    setError("");
+    if (!detail || request.current || !beforeRestore()) return;
+    const controller = begin("restore");
     try {
       const endpoint = await apiFetch<Endpoint>(
         `/api/endpoints/${endpointId}/restore`,
         {
           method: "POST",
+          signal: controller.signal,
           body: JSON.stringify({
             revisionId: detail.revision.id,
             version: detail.version,
@@ -98,42 +163,56 @@ export function DocumentHistory({
           }),
         },
       );
+      if (!current(controller)) return;
       onRestored(endpoint);
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "恢复失败");
+      if (current(controller)) setError(e instanceof Error ? e.message : "恢复失败");
     } finally {
-      setBusy(false);
+      finish(controller);
     }
   };
   const download = async () => {
-    if (!detail || busy) return;
-    setBusy(true);
-    setError("");
+    if (!detail || request.current) return;
+    const controller = begin("download");
     try {
       const response = await fetch(
         `/api/endpoints/${endpointId}/history/${detail.revision.id}/export`,
+        { signal: controller.signal },
       );
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || "导出失败");
       }
-      const url = URL.createObjectURL(await response.blob());
+      const blob = await response.blob();
+      if (!current(controller)) return;
+      const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
       anchor.download = `endpoint-v${detail.revision.version}.json`;
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "导出失败");
+      if (current(controller)) setError(e instanceof Error ? e.message : "导出失败");
     } finally {
-      setBusy(false);
+      finish(controller);
     }
   };
-  const changes = detail ? differences(detail.current, detail.snapshot) : [];
+  const changes = useMemo(
+    () => detail ? differences(detail.current, detail.snapshot) : [],
+    [detail],
+  );
+  const close = () => {
+    if (activeOperation.current === "restore") return;
+    request.current?.abort();
+    request.current = null;
+    activeOperation.current = null;
+    setOperation(null);
+    onClose();
+  };
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
+    <Dialog open onOpenChange={(open) => !open && close()}>
+      <DialogContent closeDisabled={restoring} className="max-h-[90dvh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>接口版本历史</DialogTitle>
           <DialogDescription>
@@ -141,13 +220,20 @@ export function DocumentHistory({
             个版本。恢复会创建新版本，不会删除已有历史。历史内容仅编辑成员可见。
           </DialogDescription>
         </DialogHeader>
+        {busy && (
+          <p role="status" className="flex items-center gap-2 text-sm text-zinc-500">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            {restoring ? "正在恢复版本…" : operation === "download" ? "正在导出版本…" : "正在加载历史…"}
+          </p>
+        )}
         <div className="grid min-w-0 gap-5 md:grid-cols-[220px_1fr]">
           <div className="space-y-2">
             <div className="max-h-60 space-y-2 overflow-auto md:max-h-[55vh]">
               {items.map((item) => (
                 <button
                   key={item.id}
-                  disabled={busy}
+                  disabled={restoring}
+                  aria-pressed={detail?.revision.id === item.id}
                   className={`w-full rounded-lg border p-3 text-left text-xs ${detail?.revision.id === item.id ? "border-blue-500 bg-blue-50/40 dark:bg-blue-950/20" : "border-zinc-200 dark:border-zinc-700"}`}
                   onClick={() => select(item.id)}
                 >
@@ -162,10 +248,15 @@ export function DocumentHistory({
                 </button>
               ))}
             </div>
-            {!busy && !items.length && (
+            {loaded && !busy && !error && !items.length && (
               <p className="text-sm text-zinc-500">
                 尚无历史记录。下一次修改时，会先保存当前内容作为基线。
               </p>
+            )}
+            {error && !items.length && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => load()}>
+                重试
+              </Button>
             )}
             {next && (
               <Button
@@ -191,18 +282,7 @@ export function DocumentHistory({
                 </div>
                 {changes.length ? (
                   changes.map((field) => (
-                    <details
-                      key={field.path}
-                      className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700"
-                    >
-                      <summary className="cursor-pointer break-all text-sm">
-                        {readableField(field.path)}
-                      </summary>
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        <RevisionValue label="当前内容" value={field.base} />
-                        <RevisionValue label="选中版本" value={field.current} />
-                      </div>
-                    </details>
+                    <RevisionDifference key={`${detail.revision.id}:${field.path}`} field={field} />
                   ))
                 ) : (
                   <p className="text-sm text-zinc-500">内容与当前版本一致</p>
@@ -222,9 +302,11 @@ export function DocumentHistory({
                 )}
               </>
             ) : (
-              <p className="py-8 text-center text-sm text-zinc-500">
-                {busy ? "加载中…" : "选择一个版本查看差异"}
-              </p>
+              !error && !!items.length && (
+                <p className="py-8 text-center text-sm text-zinc-500">
+                  {busy ? "加载中…" : "选择一个版本查看差异"}
+                </p>
+              )
             )}
           </div>
         </div>
@@ -234,7 +316,7 @@ export function DocumentHistory({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" disabled={busy} onClick={onClose}>
+          <Button variant="outline" disabled={restoring} onClick={close}>
             关闭
           </Button>
           {detail && (

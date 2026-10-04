@@ -31,10 +31,12 @@ export function SpecificationImport({
   project,
   onReload,
   beforeImport,
+  compact = false,
 }: {
   project: Project;
   onReload?: () => Promise<void>;
   beforeImport?: () => boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState("");
@@ -102,6 +104,9 @@ export function SpecificationImport({
       <Button
         size="sm"
         variant="outline"
+        aria-label="导入"
+        title="导入"
+        className={compact ? "shrink-0 md:px-2 lg:px-3" : undefined}
         onClick={() => {
           setOpen(true);
           setError("");
@@ -109,7 +114,7 @@ export function SpecificationImport({
         }}
       >
         <Upload className="size-3.5" />
-        导入
+        <span className={compact ? "md:hidden lg:inline" : undefined}>导入</span>
       </Button>
       {notice && (
         <div

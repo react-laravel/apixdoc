@@ -24,10 +24,12 @@ export function ProjectTransfer({
   project,
   onReload,
   beforeImport,
+  compact = false,
 }: {
   project: Project;
   beforeImport?: () => boolean;
   onReload?: () => Promise<void>;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState("openapi-json");
@@ -64,14 +66,15 @@ export function ProjectTransfer({
     <>
       {project.permissions?.canEdit !== false && (
         <SpecificationImport
+          compact={compact}
           project={project}
           onReload={onReload}
           beforeImport={beforeImport}
         />
       )}
-      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+      <Button size="sm" variant="ghost" aria-label="导出" title="导出" className={compact ? "shrink-0 md:px-2 lg:px-3" : undefined} onClick={() => setOpen(true)}>
         <Download className="size-3.5" />
-        导出
+        <span className={compact ? "md:hidden lg:inline" : undefined}>导出</span>
       </Button>
       <Dialog open={open} onOpenChange={(value) => !loading && setOpen(value)}>
         <DialogContent>

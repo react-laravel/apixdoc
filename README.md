@@ -35,8 +35,9 @@ The email shown in the empty form is a UI placeholder, not a demo account.
 - **Request testing:** environments and variables, path/query parameters,
   Bearer/Basic/API Key authentication, request cancellation, response statistics,
   searchable session-scoped history with method/result filters, and cURL import/export.
-- **JSON tools:** syntax highlighting, validation, formatting, minification,
-  structure browsing, search, copy, and download.
+- **Request and response JSON:** validation and editing for request bodies and examples;
+  API responses support raw, formatted JSON, and structure views while copying,
+  downloading, and importing examples preserve the original content.
 - **Import and export:** OpenAPI 3.0/3.1 JSON/YAML and Postman Collection 2.1,
   import previews, retained source files, and same-format export.
 - **Documentation sharing:** independent document pages, public/private access,

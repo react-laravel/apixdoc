@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { isolateHistory } from "@codemirror/commands";
 import { basicSetup } from "codemirror";
 import { Annotation, Compartment, EditorState } from "@codemirror/state";
@@ -27,6 +27,14 @@ export interface CodeEditorProps {
   template?: boolean;
   wrap?: boolean;
   focusOffset?: { offset: number; request: number };
+  sessionRef?: RefObject<CodeEditorSession | null>;
+}
+
+export interface CodeEditorSession {
+  state: EditorState | null;
+  options: Compartment;
+  onChange?: (value: string) => void;
+  focusRequest?: CodeEditorProps["focusOffset"];
 }
 
 const externalChange = Annotation.define<boolean>();
@@ -117,27 +125,39 @@ export function CodeEditor({
   template = false,
   wrap = true,
   focusOffset,
+  sessionRef,
 }: CodeEditorProps) {
   const container = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const callback = useRef(onChange);
   const initialValue = useRef(value);
-  const options = useRef(new Compartment());
+  const activeSession = useRef<CodeEditorSession | null>(null);
   useEffect(() => {
     callback.current = onChange;
-  }, [onChange]);
+    if (activeSession.current) activeSession.current = { ...activeSession.current, onChange };
+    if (sessionRef?.current) sessionRef.current = { ...sessionRef.current, onChange };
+  }, [onChange, sessionRef]);
 
   useEffect(() => {
     if (!container.current) return;
+    const stored = sessionRef?.current;
+    const session: CodeEditorSession = {
+      state: stored?.state ?? null,
+      options: stored?.options ?? new Compartment(),
+      onChange: callback.current,
+      focusRequest: stored?.focusRequest,
+    };
+    activeSession.current = session;
+    if (sessionRef) sessionRef.current = session;
     const editor = new EditorView({
       parent: container.current,
-      state: EditorState.create({
+      state: session.state ?? EditorState.create({
         doc: initialValue.current,
         extensions: [
           basicSetup,
           theme,
           highlight,
-          options.current.of([]),
+          session.options.of([]),
           EditorView.updateListener.of((update) => {
             if (
               update.docChanged &&
@@ -145,21 +165,27 @@ export function CodeEditor({
                 transaction.annotation(externalChange),
               )
             )
-              callback.current?.(update.state.doc.toString());
+              (sessionRef ? sessionRef.current?.onChange : callback.current)?.(update.state.doc.toString());
           }),
         ],
       }),
     });
     view.current = editor;
     return () => {
+      if (sessionRef) sessionRef.current = {
+        ...(activeSession.current ?? session),
+        state: editor.state,
+        onChange: undefined,
+      };
+      activeSession.current = null;
       view.current = null;
       editor.destroy();
     };
-  }, []);
+  }, [sessionRef]);
 
   useEffect(() => {
     view.current?.dispatch({
-      effects: options.current.reconfigure([
+      effects: activeSession.current!.options.reconfigure([
         EditorState.readOnly.of(readOnly),
         EditorView.editable.of(!readOnly),
         EditorView.contentAttributes.of({
@@ -199,7 +225,7 @@ export function CodeEditor({
           : []),
       ]),
     });
-  }, [label, language, readOnly, wrap, template]);
+  }, [label, language, readOnly, wrap, template, sessionRef]);
 
   useEffect(() => {
     const editor = view.current;
@@ -208,17 +234,18 @@ export function CodeEditor({
       changes: { from: 0, to: editor.state.doc.length, insert: value },
       annotations: [externalChange.of(true), isolateHistory.of("full")],
     });
-  }, [value]);
+  }, [value, sessionRef]);
 
   useEffect(() => {
-    if (!focusOffset || !view.current) return;
+    if (!focusOffset || !view.current || !activeSession.current || activeSession.current.focusRequest === focusOffset) return;
+    activeSession.current = { ...activeSession.current, focusRequest: focusOffset };
     const offset = Math.min(focusOffset.offset, view.current.state.doc.length);
     view.current.dispatch({
       selection: { anchor: offset },
       effects: EditorView.scrollIntoView(offset, { y: "center" }),
     });
     view.current.focus();
-  }, [focusOffset]);
+  }, [focusOffset, sessionRef]);
 
   return <div ref={container} className="json-code min-w-0" />;
 }

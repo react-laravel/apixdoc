@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { RefreshCw, ArrowRight } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { apiFetch } from "@/lib/api-fetch";
+import { apiFetch, ApiError } from "@/lib/api-fetch";
 import type { Organization, ProjectListItem } from "@/lib/types";
 import {
   PageHeading,
@@ -15,7 +15,7 @@ import {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectListItem[]>([]),
     [organizations, setOrganizations] = useState<Organization[]>([]),
-    [failed, setFailed] = useState<string[]>([]),
+    [failed, setFailed] = useState<Organization[]>([]),
     [loading, setLoading] = useState(true),
     [loaded, setLoaded] = useState(false),
     [error, setError] = useState("");
@@ -33,34 +33,58 @@ export default function ProjectsPage() {
       const orgs = await apiFetch<Organization[]>("/api/organizations", {
         signal: controller.signal,
       });
-      const results = await Promise.allSettled(
-        orgs.map(async (org) =>
-          (
-            await apiFetch<ProjectListItem[]>(
-              `/api/projects?organizationId=${org.id}`,
-              { signal: controller.signal },
-            )
-          ).map((project) => ({ ...project, organization: org })),
-        ),
+      // Bound requests so large accounts don't saturate the browser or DB pool.
+      const results: PromiseSettledResult<ProjectListItem[]>[] = new Array(orgs.length);
+      let next = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(4, orgs.length) }, async () => {
+          while (!controller.signal.aborted && next < orgs.length) {
+            const index = next++;
+            const org = orgs[index];
+            try {
+              const items = await apiFetch<ProjectListItem[]>(
+                `/api/projects?organizationId=${encodeURIComponent(org.id)}`,
+                { signal: controller.signal },
+              );
+              results[index] = {
+                status: "fulfilled",
+                value: items.map((project) => ({ ...project, organization: org })),
+              };
+            } catch (reason) {
+              results[index] = { status: "rejected", reason };
+            }
+          }
+        }),
       );
       if (controller.signal.aborted) return;
       setOrganizations(orgs);
       setFailed(
         results.flatMap((result, index) =>
-          result.status === "rejected" ? [orgs[index].name] : [],
+          result.status === "rejected" ? [orgs[index]] : [],
         ),
       );
-      setProjects(
+      setProjects((previous) =>
         results
-          .flatMap((result) =>
-            result.status === "fulfilled" ? result.value : [],
-          )
+          .flatMap((result, index) => {
+            if (result.status === "fulfilled") return result.value;
+            if (result.reason instanceof ApiError && [401, 403, 404].includes(result.reason.status))
+              return [];
+            return previous
+              .filter((project) => project.organization.id === orgs[index].id)
+              .map((project) => ({ ...project, organization: orgs[index] }));
+          })
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       );
       setLoaded(true);
     } catch (e) {
-      if (!controller.signal.aborted)
+      if (!controller.signal.aborted) {
+        if (e instanceof ApiError && [401, 403].includes(e.status)) {
+          setProjects([]);
+          setOrganizations([]);
+          setFailed([]);
+        }
         setError(e instanceof Error ? e.message : "加载失败");
+      }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
@@ -69,6 +93,7 @@ export default function ProjectsPage() {
     void load();
     return () => request.current?.abort();
   }, [load]);
+  const staleOrganizations = useMemo(() => new Set(failed.map((org) => org.id)), [failed]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return projects.filter(
@@ -154,7 +179,7 @@ export default function ProjectsPage() {
         >
           <span className="min-w-0 flex-1 break-words">
             {error ||
-              `部分项目暂时无法加载：${failed.join("、")}。其他项目仍可使用。`}
+              `部分组织刷新失败：${failed.map((org) => org.name).join("、")}。已加载的项目会保留，内容可能不是最新。`}
           </span>
           <Button variant="ghost" size="sm" disabled={loading} onClick={load}>
             重新加载
@@ -168,6 +193,7 @@ export default function ProjectsPage() {
           <>
             <div className="flex items-center justify-between gap-2">
               <p role="status" className="text-xs text-zinc-500">
+                {loading ? "正在刷新 · " : ""}
                 {hasFilters
                   ? `找到 ${filtered.length} 个项目`
                   : `${projects.length} 个项目`}
@@ -186,6 +212,7 @@ export default function ProjectsPage() {
                     key={project.id}
                     project={project}
                     organization={project.organization}
+                    stale={staleOrganizations.has(project.organization.id) || !!error}
                   />
                 ))}
               </div>
@@ -194,14 +221,14 @@ export default function ProjectsPage() {
                 title={
                   hasFilters
                     ? "没有找到匹配的项目"
-                    : failed.length
+                    : failed.length || error
                       ? "项目暂时无法显示"
                       : "还没有项目"
                 }
                 description={
                   hasFilters
                     ? "试试其他关键词或组织，也可以清空筛选重新查找。"
-                    : failed.length
+                    : failed.length || error
                       ? "部分组织加载失败，请重试后查看。"
                       : "进入一个组织，为团队创建第一个接口项目。"
                 }
@@ -210,7 +237,7 @@ export default function ProjectsPage() {
                   <Button variant="outline" onClick={reset}>
                     清空筛选
                   </Button>
-                ) : failed.length ? (
+                ) : failed.length || error ? (
                   <Button onClick={load} disabled={loading}>
                     重新加载
                   </Button>

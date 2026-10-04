@@ -5,6 +5,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MethodBadge } from "@/components/method-badge";
+import { createSidebarIndex, hasFolderAncestor } from "./endpoint-sidebar-model";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown,
@@ -62,6 +63,17 @@ export function EndpointSidebar({
   const [renameValue, setRenameValue] = useState("");
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const renameRequested = useRef<FolderItem | null>(null);
+  const renameCancelled = useRef(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const directoryRef = useRef<HTMLDivElement | null>(null);
+  const {
+    folderById,
+    endpointById,
+    foldersByParent,
+    endpointsByFolder,
+    folderPathById,
+    searchEntries,
+  } = useMemo(() => createSidebarIndex(folders, endpoints), [folders, endpoints]);
 
   // Derived: allCollapsed is computed from collapsed + folders, not stored
   const allCollapsed = useMemo(
@@ -75,6 +87,19 @@ export function EndpointSidebar({
   const enterCounters = useRef<Map<string, number>>(new Map());
 
   const setDropTarget = useCallback((target: DropTarget | null) => {
+    const previous = dropTargetRef.current;
+    if (
+      previous === target ||
+      (previous &&
+        target &&
+        previous.type === target.type &&
+        (previous.type === "root" ||
+          ("id" in target &&
+            previous.id === target.id &&
+            previous.position === target.position)))
+    ) {
+      return;
+    }
     dropTargetRef.current = target;
     setDropTargetState(target);
   }, []);
@@ -112,39 +137,61 @@ export function EndpointSidebar({
   };
 
   const confirmRename = () => {
-    if (renamingId && renameValue.trim()) {
-      onRenameFolder(renamingId, renameValue.trim());
+    const newName = renameValue.trim();
+    if (
+      !renameCancelled.current &&
+      renamingId &&
+      newName &&
+      newName !== folderById.get(renamingId)?.name
+    ) {
+      onRenameFolder(renamingId, newName);
     }
     setRenamingId(null);
     setRenameValue("");
   };
 
   // Separate root-level folders and children
-  const rootFolders = folders.filter((f) => !f.parentId);
+  const rootFolders = foldersByParent.get(null) ?? [];
   const getChildFolders = useCallback(
-    (parentId: string) => folders.filter((f) => f.parentId === parentId),
-    [folders],
+    (parentId: string) => foldersByParent.get(parentId) ?? [],
+    [foldersByParent],
   );
-  const rootEndpoints = endpoints.filter((e) => !e.folderId);
+  const rootEndpoints = endpointsByFolder.get(null) ?? [];
   const getEndpointsInFolder = useCallback(
-    (folderId: string) => endpoints.filter((e) => e.folderId === folderId),
-    [endpoints],
+    (folderId: string) => endpointsByFolder.get(folderId) ?? [],
+    [endpointsByFolder],
   );
   const normalizedSearchQuery = searchQuery.trim().toLowerCase();
-  const folderNameById = new Map(
-    folders.map((folder) => [folder.id, folder.name]),
-  );
-  const searchResults = normalizedSearchQuery
-    ? endpoints.filter((endpoint) => {
-        const folderName = endpoint.folderId
-          ? (folderNameById.get(endpoint.folderId) ?? "")
-          : "未分组";
-        return [endpoint.name, endpoint.path, endpoint.method, folderName]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedSearchQuery);
-      })
-    : [];
+  const searchResults = useMemo(() => {
+    if (!normalizedSearchQuery) return [];
+    const results: Endpoint[] = [];
+    for (const { endpoint, searchText } of searchEntries) {
+      if (searchText.includes(normalizedSearchQuery)) results.push(endpoint);
+    }
+    return results;
+  }, [searchEntries, normalizedSearchQuery]);
+
+  const selectSearchResult = (endpoint: Endpoint) => {
+    // Reveal the selected result when returning to the directory tree.
+    const ancestorIds = new Set<string>();
+    let folderId = endpoint.folderId;
+    while (folderId && !ancestorIds.has(folderId)) {
+      ancestorIds.add(folderId);
+      folderId = folderById.get(folderId)?.parentId ?? null;
+    }
+    setCollapsed((previous) => {
+      if (!Array.from(ancestorIds).some((id) => previous[id])) return previous;
+      const next = { ...previous };
+      for (const id of ancestorIds) delete next[id];
+      return next;
+    });
+    onSelectEndpoint(endpoint.id);
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    searchInputRef.current?.focus();
+  };
 
   // --- Helpers ---
 
@@ -177,19 +224,7 @@ export function EndpointSidebar({
 
   // Check if folderId is a descendant of ancestorId (prevent circular nesting)
   const isDescendant = (folderId: string, ancestorId: string): boolean => {
-    const stack = getChildFolders(ancestorId).map((child) => child.id);
-
-    while (stack.length > 0) {
-      const currentId = stack.pop();
-      if (!currentId) continue;
-      if (currentId === folderId) return true;
-
-      for (const child of getChildFolders(currentId)) {
-        stack.push(child.id);
-      }
-    }
-
-    return false;
+    return hasFolderAncestor(folderId, ancestorId, folderById);
   };
 
   // --- Drag start/end ---
@@ -199,24 +234,9 @@ export function EndpointSidebar({
     setDragItem(item);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", "drag");
-    requestAnimationFrame(() => {
-      if (e.target instanceof HTMLElement) {
-        e.target.style.opacity = "0.4";
-      }
-    });
   };
 
-  const handleDragEnd = (e: React.DragEvent) => {
-    if (e.target instanceof HTMLElement) {
-      e.target.style.opacity = "";
-      // Force cursor reset by briefly disabling pointer events
-      e.target.style.cursor = "grab";
-      requestAnimationFrame(() => {
-        if (e.target instanceof HTMLElement) {
-          e.target.style.cursor = "";
-        }
-      });
-    }
+  const handleDragEnd = () => {
     dragItemRef.current = null;
     setDragItem(null);
     setDropTarget(null);
@@ -320,13 +340,13 @@ export function EndpointSidebar({
 
   const applyDrop = (source: DragItem, target: DropTarget) => {
     if (source.type === "folder") {
+      if (!folderById.has(source.id)) return;
       if (target.type === "folder" && target.id !== source.id) {
+        if (!folderById.has(target.id) || isDescendant(target.id, source.id)) return;
         if (target.position === "inside") {
           // Move source folder into target folder as child
           // Find siblings of the target folder's children, append at end
-          const siblings = folders.filter(
-            (f) => f.parentId === target.id && f.id !== source.id,
-          );
+          const siblings = getChildFolders(target.id).filter((f) => f.id !== source.id);
           const folderUpdates = [
             ...siblings.map((f, i) => ({ id: f.id, order: i })),
             { id: source.id, order: siblings.length, parentId: target.id },
@@ -336,15 +356,13 @@ export function EndpointSidebar({
           setCollapsed((prev) => ({ ...prev, [target.id]: false }));
         } else {
           // Reorder: move source before/after target at the same parent level
-          const targetFolder = folders.find((f) => f.id === target.id);
+          const targetFolder = folderById.get(target.id);
           const parentId = targetFolder?.parentId ?? null;
-          const siblings = folders.filter(
-            (f) => f.parentId === parentId && f.id !== source.id,
-          );
+          const siblings = (foldersByParent.get(parentId) ?? []).filter((f) => f.id !== source.id);
           const tgtIdx = siblings.findIndex((f) => f.id === target.id);
           if (tgtIdx === -1) return;
           const insertIdx = target.position === "before" ? tgtIdx : tgtIdx + 1;
-          const sourceFolder = folders.find((f) => f.id === source.id);
+          const sourceFolder = folderById.get(source.id);
           if (!sourceFolder) return;
           siblings.splice(insertIdx, 0, sourceFolder);
           onReorder(
@@ -358,9 +376,7 @@ export function EndpointSidebar({
         }
       } else if (target.type === "root") {
         // Move to root level
-        const rootSiblings = folders.filter(
-          (f) => !f.parentId && f.id !== source.id,
-        );
+        const rootSiblings = rootFolders.filter((f) => f.id !== source.id);
         onReorder(
           [
             ...rootSiblings.map((f, i) => ({
@@ -381,23 +397,25 @@ export function EndpointSidebar({
     }
 
     if (source.type === "endpoint") {
-      const srcEp = endpoints.find((ep) => ep.id === source.id);
+      const srcEp = endpointById.get(source.id);
       if (!srcEp) return;
 
       let targetFolderId: string | null = srcEp.folderId;
 
       if (target.type === "folder") {
+        if (!folderById.has(target.id)) return;
         targetFolderId = target.id;
       } else if (target.type === "endpoint") {
-        const tgtEp = endpoints.find((ep) => ep.id === target.id);
+        if (target.id === source.id) return;
+        const tgtEp = endpointById.get(target.id);
         if (!tgtEp) return;
         targetFolderId = tgtEp.folderId;
       } else if (target.type === "root") {
         targetFolderId = null;
       }
 
-      const group = endpoints
-        .filter((ep) => ep.folderId === targetFolderId && ep.id !== source.id)
+      const group = (endpointsByFolder.get(targetFolderId) ?? [])
+        .filter((ep) => ep.id !== source.id)
         .map((ep) => ({ ...ep }));
 
       const movedEp = { ...srcEp, folderId: targetFolderId };
@@ -493,8 +511,16 @@ export function EndpointSidebar({
               onChange={(e) => setRenameValue(e.target.value)}
               onBlur={confirmRename}
               onKeyDown={(e) => {
-                if (e.key === "Enter") e.currentTarget.blur();
-                if (e.key === "Escape") setRenamingId(null);
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  renameCancelled.current = true;
+                  e.currentTarget.blur();
+                }
               }}
               className="flex-1 min-w-0 rounded border border-zinc-300 bg-white px-1.5 py-0.5 text-sm dark:border-zinc-600 dark:bg-zinc-800"
               onClick={(e) => e.stopPropagation()}
@@ -504,11 +530,16 @@ export function EndpointSidebar({
               type="button"
               onClick={() => toggleFolder(folder.id)}
               aria-expanded={!isCollapsed}
-              className="min-w-0 flex-1 truncate py-1 text-left font-medium"
+              className="min-w-0 flex-1 truncate rounded py-1 text-left font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               title={folder.name}
             >
               {folder.name}
             </button>
+          )}
+          {folderEndpoints.length > 0 && (
+            <span aria-hidden="true" className="shrink-0 px-1 text-[11px] tabular-nums text-zinc-400">
+              {folderEndpoints.length}
+            </span>
           )}
           <button
             onClick={(e) => {
@@ -540,6 +571,7 @@ export function EndpointSidebar({
                   event.preventDefault();
                   renameRequested.current = null;
                   requestAnimationFrame(() => {
+                    renameCancelled.current = false;
                     setRenamingId(folder.id);
                     setRenameValue(folder.name);
                   });
@@ -657,10 +689,22 @@ export function EndpointSidebar({
         <div className="relative min-w-0">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
           <Input
+            ref={searchInputRef}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Escape") setSearchQuery("");
+              if (e.nativeEvent.isComposing) return;
+              if (e.key === "Escape") clearSearch();
+              if (normalizedSearchQuery && searchResults.length > 0) {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  selectSearchResult(searchResults[0]);
+                }
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  directoryRef.current?.querySelector<HTMLButtonElement>("[data-search-result]")?.focus();
+                }
+              }
             }}
             aria-label="搜索接口"
             placeholder="搜索名称、路径或请求方法"
@@ -669,7 +713,7 @@ export function EndpointSidebar({
           {searchQuery && (
             <button
               type="button"
-              onClick={() => setSearchQuery("")}
+              onClick={clearSearch}
               className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-800"
               aria-label="清空搜索"
             >
@@ -680,6 +724,7 @@ export function EndpointSidebar({
       </div>
 
       <div
+        ref={directoryRef}
         className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-2"
         onDrop={(e) => {
           e.preventDefault();
@@ -708,11 +753,11 @@ export function EndpointSidebar({
                 ep={ep}
                 folderName={
                   ep.folderId
-                    ? (folderNameById.get(ep.folderId) ?? "")
+                    ? (folderPathById.get(ep.folderId) ?? "")
                     : "未分组"
                 }
                 isSelected={selectedEndpointId === ep.id}
-                onSelect={() => onSelectEndpoint(ep.id)}
+                onSelect={() => selectSearchResult(ep)}
               />
             ))}
             {searchResults.length === 0 && (
@@ -761,11 +806,19 @@ export function EndpointSidebar({
           </>
         )}
 
+        {!normalizedSearchQuery &&
+          rootFolders.length === 0 &&
+          rootEndpoints.length === 0 && (
+            <p className="px-2 py-6 text-center text-sm text-zinc-400">
+              暂无接口，点击上方按钮创建
+            </p>
+          )}
+
         {/* Drop zone: drag here to move to root level */}
         {!normalizedSearchQuery && (
           <div
             className={cn(
-              "flex-1 min-h-[48px]",
+              "flex min-h-[48px] flex-1 items-center justify-center rounded text-xs text-zinc-400",
               dropTarget?.type === "root" &&
                 "bg-blue-50 dark:bg-blue-950/40 rounded border-2 border-dashed border-blue-300 dark:border-blue-700",
             )}
@@ -782,16 +835,10 @@ export function EndpointSidebar({
                 setDropTarget(null);
               }
             }}
-          />
+          >
+            {dragItem && <span className="pointer-events-none">拖到此处移至未分组</span>}
+          </div>
         )}
-
-        {!normalizedSearchQuery &&
-          rootFolders.length === 0 &&
-          rootEndpoints.length === 0 && (
-            <p className="px-2 py-4 text-center text-sm text-zinc-400">
-              暂无接口，点击上方按钮创建
-            </p>
-          )}
       </div>
     </div>
   );
@@ -811,10 +858,12 @@ function SearchResultRow({
   return (
     <button
       type="button"
+      data-search-result
+      title={`${ep.method} ${ep.path}\n${folderName}`}
       onClick={onSelect}
       aria-current={isSelected ? "page" : undefined}
       className={cn(
-        "flex w-full min-w-0 items-start gap-2 rounded px-2 py-2 text-left text-sm",
+        "flex w-full min-w-0 items-start gap-2 rounded px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
         isSelected
           ? "bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-900"
           : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
@@ -882,7 +931,7 @@ function EndpointRow({
         onDragLeave={onDragLeave}
         onClick={onSelect}
         className={cn(
-          "group flex w-full min-w-0 items-center gap-1.5 rounded-lg py-2.5 text-sm cursor-grab active:cursor-grabbing",
+          "group flex w-full min-w-0 items-center gap-1.5 rounded-lg py-2.5 text-sm cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
           isSelected
             ? "bg-blue-50 ring-1 ring-inset ring-blue-200 dark:bg-blue-950/50 dark:ring-blue-900"
             : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",

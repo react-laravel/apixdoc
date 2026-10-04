@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useProjectPage } from "@/hooks/useProjectPage";
 
+const navigationState = vi.hoisted(() => ({ id: "proj-1" }));
+vi.mock("next/navigation", () => ({
+  useParams: () => ({ id: navigationState.id }),
+}));
+
+beforeEach(() => {
+  navigationState.id = "proj-1";
+});
+
 const mockProject = {
   id: "proj-1",
   layoutVersion: 1,
@@ -879,5 +888,249 @@ describe("project editing regressions", () => {
     });
     expect(result.current.project?.name).toBe(mockProject.name);
     expect(result.current.saveError).toBeNull();
+  });
+});
+
+describe("project request lifecycle", () => {
+  const secondEndpoint = {
+    ...mockProject.endpoints[0],
+    id: "ep-2",
+    name: "Second endpoint",
+  };
+  const project = {
+    ...mockProject,
+    endpoints: [...mockProject.endpoints, secondEndpoint],
+  };
+  const otherProject = {
+    ...mockProject,
+    id: "proj-2",
+    name: "Other project",
+    endpoints: [{ ...secondEndpoint, id: "other-ep" }],
+  };
+
+  function response(data: unknown): Response {
+    return { ok: true, json: async () => ({ success: true, data }) } as Response;
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  function serveProjects() {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(response(url.endsWith("proj-2") ? otherProject : project)),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("aborts superseded reads and ignores their late results", async () => {
+    const fetchMock = serveProjects();
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const previousRead = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => previousRead.promise);
+    let previousRefresh!: Promise<void>;
+    act(() => {
+      previousRefresh = result.current.fetchProject();
+    });
+    const previousSignal = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.signal;
+    expect(previousSignal?.aborted).toBe(false);
+
+    fetchMock.mockResolvedValueOnce(response({ ...project, name: "Newest" }));
+    await act(async () => {
+      await result.current.fetchProject();
+    });
+    expect(previousSignal?.aborted).toBe(true);
+    await act(async () => {
+      previousRead.resolve(response({ ...project, name: "Stale" }));
+      await previousRefresh;
+    });
+    expect(result.current.project?.name).toBe("Newest");
+  });
+
+  it("aborts reads when the route changes or the hook unmounts", async () => {
+    const pending = deferred<Response>();
+    vi.stubGlobal("fetch", vi.fn(() => pending.promise));
+    const { rerender, unmount } = renderHook(() => useProjectPage());
+    const firstSignal = vi.mocked(fetch).mock.calls[0]?.[1]?.signal;
+    act(() => {
+      navigationState.id = "proj-2";
+      rerender();
+    });
+    expect(firstSignal?.aborted).toBe(true);
+    const secondSignal = vi.mocked(fetch).mock.calls[1]?.[1]?.signal;
+    unmount();
+    expect(secondSignal?.aborted).toBe(true);
+  });
+
+  it.each(["folder", "endpoint", "copy", "delete", "failed-copy"])(
+    "ignores a late %s mutation after switching projects",
+    async (operation) => {
+      const fetchMock = serveProjects();
+      const { result, rerender } = renderHook(() => useProjectPage());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      act(() => result.current.handleSelectEndpoint("ep-1"));
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const pending = deferred<Response>();
+      fetchMock.mockImplementationOnce(() => pending.promise);
+      let mutation!: Promise<unknown>;
+      act(() => {
+        switch (operation) {
+          case "folder":
+            mutation = result.current.handleCreateFolder("Late folder");
+            break;
+          case "endpoint":
+            mutation = result.current.handleCreateEndpoint({
+              name: "Late endpoint", method: "GET", path: "/late",
+              description: "", folderId: null,
+            });
+            break;
+          case "delete":
+            mutation = result.current.handleDeleteEndpoint();
+            break;
+          default:
+            mutation = result.current.handleCopyEndpoint();
+        }
+      });
+      act(() => {
+        navigationState.id = "proj-2";
+        rerender();
+      });
+      await waitFor(() => expect(result.current.project?.id).toBe("proj-2"));
+      act(() => result.current.handleSelectEndpoint("other-ep"));
+      await act(async () => {
+        if (operation === "failed-copy") pending.reject(new Error("Old error"));
+        else pending.resolve(response({
+          ...mockProject.endpoints[0], id: "late", name: "Late folder",
+          layoutVersion: 2, projectLayoutVersion: 2,
+        }));
+        await mutation;
+      });
+      expect(result.current.project?.folders).toEqual([]);
+      expect(result.current.allEndpoints.map((endpoint) => endpoint.id)).toEqual(["other-ep"]);
+      expect(result.current.selectedEndpointId).toBe("other-ep");
+      expect(result.current.saveError).toBeNull();
+    },
+  );
+
+  it("rejects a previous visit's save even after returning to the same project", async () => {
+    const fetchMock = serveProjects();
+    const { result, rerender } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint("ep-1"));
+    const pending = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => pending.promise);
+    let save!: Promise<unknown>;
+    act(() => {
+      save = result.current.handleSaveEndpoint({ name: "Old visit" }, 1, "basic");
+    });
+    act(() => {
+      navigationState.id = "proj-2";
+      rerender();
+    });
+    await waitFor(() => expect(result.current.project?.id).toBe("proj-2"));
+    act(() => {
+      navigationState.id = "proj-1";
+      rerender();
+    });
+    await waitFor(() => expect(result.current.project?.id).toBe("proj-1"));
+    await act(async () => {
+      pending.resolve(response({ ...project.endpoints[0], version: 2, name: "Old visit" }));
+      await save;
+    });
+    expect(result.current.allEndpoints[0].name).toBe("Test Endpoint");
+  });
+
+  it.each(["copy", "delete", "create"])(
+    "preserves a newer endpoint selection while %s completes",
+    async (operation) => {
+      const fetchMock = serveProjects();
+      const { result } = renderHook(() => useProjectPage());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      act(() => result.current.handleSelectEndpoint("ep-1"));
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      const pending = deferred<Response>();
+      fetchMock.mockImplementationOnce(() => pending.promise);
+      let mutation!: Promise<unknown>;
+      act(() => {
+        if (operation === "copy") mutation = result.current.handleCopyEndpoint();
+        else if (operation === "delete") mutation = result.current.handleDeleteEndpoint();
+        else mutation = result.current.handleCreateEndpoint({
+          name: "Created", method: "GET", path: "/created", description: "", folderId: null,
+        });
+      });
+      act(() => result.current.handleSelectEndpoint("ep-2"));
+      await act(async () => {
+        pending.resolve(response({ ...project.endpoints[0], id: "created", layoutVersion: 2 }));
+        await mutation;
+      });
+      expect(result.current.selectedEndpointId).toBe("ep-2");
+      if (operation === "delete")
+        expect(result.current.allEndpoints.map((endpoint) => endpoint.id)).toEqual(["ep-2"]);
+      else expect(result.current.allEndpoints).toHaveLength(3);
+    },
+  );
+
+  it("keeps a saved endpoint when an earlier refresh finishes later", async () => {
+    const fetchMock = serveProjects();
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint("ep-1"));
+    const oldRead = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => oldRead.promise);
+    let refresh!: Promise<void>;
+    act(() => { refresh = result.current.fetchProject(); });
+    const readSignal = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.signal;
+    fetchMock.mockResolvedValueOnce(response({ ...project.endpoints[0], name: "Saved", version: 2 }));
+    await act(async () => {
+      await result.current.handleSaveEndpoint({ name: "Saved" }, 1, "basic");
+    });
+    expect(readSignal?.aborted).toBe(true);
+    await act(async () => {
+      oldRead.resolve(response(project));
+      await refresh;
+    });
+    expect(result.current.selectedEndpoint?.name).toBe("Saved");
+    expect(result.current.selectedEndpoint?.version).toBe(2);
+  });
+
+  it("keeps the newer endpoint version when save responses arrive out of order", async () => {
+    const fetchMock = serveProjects();
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint("ep-1"));
+    const oldSave = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => oldSave.promise);
+    let previousSave!: Promise<unknown>;
+    act(() => {
+      previousSave = result.current.handleSaveEndpoint({ name: "Earlier" }, 1, "basic");
+    });
+    fetchMock.mockResolvedValueOnce(response({ ...project.endpoints[0], name: "Newest", version: 3 }));
+    await act(async () => {
+      await result.current.handleSaveEndpoint({ name: "Newest" }, 2, "basic");
+      oldSave.resolve(response({ ...project.endpoints[0], name: "Earlier", version: 2 }));
+      await previousSave;
+    });
+    expect(result.current.selectedEndpoint?.name).toBe("Newest");
+    expect(result.current.selectedEndpoint?.version).toBe(3);
+  });
+
+  it("preserves loaded data after a refresh fails", async () => {
+    const fetchMock = serveProjects();
+    const { result } = renderHook(() => useProjectPage());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    act(() => result.current.handleSelectEndpoint("ep-1"));
+    fetchMock.mockRejectedValueOnce(new Error("Offline"));
+    await act(async () => { await result.current.fetchProject(); });
+    expect(result.current.loadError).toBe("Offline");
+    expect(result.current.project?.id).toBe("proj-1");
+    expect(result.current.selectedEndpointId).toBe("ep-1");
   });
 });

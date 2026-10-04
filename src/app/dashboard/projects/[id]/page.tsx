@@ -1,28 +1,50 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
   FilePlus,
+  Eye,
   Loader2,
+  MoreHorizontal,
   Settings,
   X,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { EndpointSidebar } from "@/components/endpoint-sidebar";
-import { DocumentationView } from "@/components/documentation/documentation-view";
 import { ProjectPublications } from "@/components/project-publications";
 import { ProjectRecycleBin } from "@/components/project-recycle-bin";
 import { ProjectTransfer } from "@/components/project-transfer";
-import { EndpointDetail } from "@/components/endpoint-detail";
-import { ProjectSettings } from "@/components/project-settings";
 import { CreateFolderDialog } from "@/components/create-folder-dialog";
 import { CreateEndpointDialog } from "@/components/create-endpoint-dialog";
 import { useProjectPage } from "@/hooks/useProjectPage";
 import { cn } from "@/lib/utils";
+
+function WorkspaceLoading() {
+  return (
+    <div role="status" className="flex min-h-40 flex-1 items-center justify-center gap-2 p-6 text-sm text-zinc-500">
+      <Loader2 aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+      正在加载工作台…
+    </div>
+  );
+}
+
+const EndpointDetail = dynamic(
+  () => import("@/components/endpoint-detail").then((module) => module.EndpointDetail),
+  { loading: WorkspaceLoading },
+);
+const DocumentationView = dynamic(
+  () => import("@/components/documentation/documentation-view").then((module) => module.DocumentationView),
+  { loading: WorkspaceLoading },
+);
+const ProjectSettings = dynamic(
+  () => import("@/components/project-settings").then((module) => module.ProjectSettings),
+  { loading: () => <p role="status" className="p-3 text-center text-sm text-zinc-500">正在加载项目设置…</p> },
+);
 
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
@@ -53,6 +75,7 @@ function ProjectWorkspace() {
     handleSaveSettings,
   } = useProjectPage();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!restoreNotice) return;
@@ -85,7 +108,7 @@ function ProjectWorkspace() {
         role="status"
         className="flex h-full items-center justify-center gap-2 text-sm text-zinc-500"
       >
-        <Loader2 className="size-4 animate-spin" />
+        <Loader2 aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
         正在加载项目…
       </div>
     );
@@ -115,7 +138,7 @@ function ProjectWorkspace() {
 
   return (
     <div className="-m-3 flex h-[calc(100%+1.5rem)] min-h-0 flex-col sm:-m-6 sm:h-[calc(100%+3rem)]">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-3 py-3 sm:px-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-3 py-2 sm:px-4 dark:border-zinc-800 dark:bg-zinc-900">
         <Link
           href="/dashboard/projects"
           aria-label="返回项目列表"
@@ -126,17 +149,32 @@ function ProjectWorkspace() {
         >
           <ArrowLeft className="size-4" />
         </Link>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1" title={project.name}>
           <h1 className="truncate text-sm font-semibold">{project.name}</h1>
           <p className="mt-0.5 truncate text-xs text-zinc-500">
             {allEndpoints.length} 个接口 ·{" "}
             {project.baseUrl || "尚未配置基础 URL"}
           </p>
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 md:hidden"
+          aria-label="更多项目操作"
+          aria-expanded={actionsOpen}
+          aria-controls="project-toolbar-actions"
+          onClick={() => setActionsOpen((open) => !open)}
+        >
+          <MoreHorizontal className="size-4" />
+        </Button>
         <div
+          id="project-toolbar-actions"
           role="group"
           aria-label="项目操作"
-          className="flex w-full min-w-0 flex-wrap items-center gap-1.5 border-t border-zinc-100 pt-2 xl:w-auto xl:border-0 xl:pt-0 dark:border-zinc-800"
+          className={cn(
+            "w-full min-w-0 flex-wrap items-center gap-1 border-t border-zinc-100 pt-2 md:flex md:w-auto md:flex-nowrap md:border-0 md:pt-0 dark:border-zinc-800",
+            actionsOpen ? "flex" : "hidden",
+          )}
         >
           <ProjectPublications
             project={project}
@@ -149,6 +187,7 @@ function ProjectWorkspace() {
             onChanged={fetchProject}
           />
           <ProjectRecycleBin
+            compact
             projectId={project.id}
             beforeRestore={canLeave}
             onRestored={(updated) => {
@@ -158,6 +197,7 @@ function ProjectWorkspace() {
             }}
           />
           <ProjectTransfer
+            compact
             project={project}
             beforeImport={canLeave}
             onReload={async () => {
@@ -169,23 +209,27 @@ function ProjectWorkspace() {
           <Link
             href={`/docs/${project.id}?preview=1`}
             target="_blank"
-            className={buttonVariants({ variant: "outline", size: "sm" })}
+            aria-label="内部预览"
+            title="内部预览"
+            className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "md:px-2 lg:px-3")}
           >
-            内部预览
+            <Eye className="size-3.5" />
+            <span className="md:hidden lg:inline">内部预览</span>
           </Link>
           {project.permissions?.canConfigure !== false && (
             <Button
               variant="ghost"
               size="sm"
-              className="shrink-0 gap-2"
+              className="shrink-0 gap-2 md:px-2 lg:px-3"
+              aria-label="项目设置"
+              title="项目设置"
               onClick={() => {
                 setSaveError(null);
                 setSettingsOpen(true);
               }}
             >
               <Settings className="size-4" />
-              <span className="hidden sm:inline">项目设置</span>
-              <span className="sm:hidden">设置</span>
+              <span className="md:hidden lg:inline">项目设置</span>
             </Button>
           )}
         </div>

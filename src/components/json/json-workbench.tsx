@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import {
   Check,
   Copy,
@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { CodeEditor } from "@/components/json/code-editor";
+import { CodeEditor, type CodeEditorSession } from "@/components/json/code-editor";
 import { JsonTree } from "@/components/json/json-tree";
 import {
   formatBytes,
@@ -33,6 +33,7 @@ interface JsonWorkbenchProps {
   filename?: string;
   disabled?: boolean;
   template?: boolean;
+  responseView?: boolean;
 }
 
 export function JsonWorkbench({
@@ -44,14 +45,17 @@ export function JsonWorkbench({
   filename = "document.json",
   disabled = false,
   template = false,
+  responseView = false,
 }: JsonWorkbenchProps) {
   const id = useId();
+  const editorSession = useRef<CodeEditorSession | null>(null);
   const [mode, setMode] = useState<"source" | "tree">("source");
   const [pretty, setPretty] = useState(readOnly);
   const [wrap, setWrap] = useState(true);
   const [expanded, setExpanded] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [notice, setNotice] = useState<{ source: string; message: string } | null>(null);
+  const [copiedSource, setCopiedSource] = useState<string | null>(null);
+  const copyVersion = useRef(0);
   const [focusOffset, setFocusOffset] = useState<{
     offset: number;
     request: number;
@@ -69,6 +73,7 @@ export function JsonWorkbench({
     [value, language, template],
   );
   const canFormat = language === "json" && !!document.root && !document.issue;
+  const treeVisible = mode === "tree" && !template && canFormat;
   const displayed = useMemo(
     () =>
       readOnly && pretty && canFormat
@@ -78,15 +83,19 @@ export function JsonWorkbench({
         : value,
     [readOnly, pretty, canFormat, value, template],
   );
+  const lineCount = useMemo(() => value.split(/\r\n|\r|\n/).length, [value]);
 
   const copy = async (text: string, kind = "内容") => {
+    const version = ++copyVersion.current;
     try {
       await navigator.clipboard.writeText(text);
-      setNotice(`${kind}已复制`);
-      setCopied(true);
+      if (version !== copyVersion.current) return;
+      setNotice({ source: value, message: `${kind}已复制` });
+      setCopiedSource(kind === "内容" ? value : null);
     } catch {
-      setNotice("复制失败，请选择内容后手动复制");
-      setCopied(false);
+      if (version !== copyVersion.current) return;
+      setNotice({ source: value, message: "复制失败，请选择内容后手动复制" });
+      setCopiedSource(null);
     }
   };
   const transform = (action: "format" | "minify") => {
@@ -95,18 +104,18 @@ export function JsonWorkbench({
         setPretty(action === "format");
         setNotice(null);
       } else {
-        onChange?.(
+        const next =
           template
             ? transformJsonTemplate(value, action === "format")
             : action === "format"
               ? formatJson(value)
-              : minifyJson(value),
-        );
-        setNotice(action === "format" ? "已美化" : "已压缩");
+              : minifyJson(value);
+        onChange?.(next);
+        setNotice({ source: next, message: action === "format" ? "已美化" : "已压缩" });
       }
       setMode("source");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "处理失败");
+      setNotice({ source: value, message: error instanceof Error ? error.message : "处理失败" });
     }
   };
   const download = () => {
@@ -123,7 +132,7 @@ export function JsonWorkbench({
     anchor.download = filename;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setNotice("已下载原始内容");
+    setNotice({ source: value, message: "已下载原始内容" });
   };
 
   const content = (
@@ -142,27 +151,45 @@ export function JsonWorkbench({
         <div
           className="flex rounded-md bg-zinc-200/60 p-0.5 dark:bg-zinc-800"
           role="group"
-          aria-label="查看方式"
+          aria-label={responseView ? "响应展示方式" : "查看方式"}
         >
           <button
             type="button"
             className={cn(
               "rounded px-2 py-1 text-xs",
-              mode === "source" && "bg-white shadow-sm dark:bg-zinc-700",
+              !treeVisible && (!responseView || !pretty || !canFormat) && "bg-white shadow-sm dark:bg-zinc-700",
             )}
-            aria-pressed={mode === "source"}
-            onClick={() => setMode("source")}
+            aria-pressed={!treeVisible && (!responseView || !pretty || !canFormat)}
+            onClick={() => {
+              setMode("source");
+              if (responseView) setPretty(false);
+            }}
           >
-            {readOnly ? "源码" : "编辑"}
+            {responseView ? "原文" : readOnly ? "源码" : "编辑"}
           </button>
+          {responseView && (
+            <button
+              type="button"
+              className={cn("rounded px-2 py-1 text-xs disabled:opacity-40", !treeVisible && pretty && canFormat && "bg-white shadow-sm dark:bg-zinc-700")}
+              aria-pressed={!treeVisible && pretty && canFormat}
+              disabled={!canFormat}
+              title={!canFormat ? "当前返回内容无法格式化为 JSON" : "格式化 JSON，保留数值精度"}
+              onClick={() => {
+                setMode("source");
+                setPretty(true);
+              }}
+            >
+              JSON 格式化
+            </button>
+          )}
           {language === "json" && (
             <button
               type="button"
               className={cn(
                 "rounded px-2 py-1 text-xs disabled:opacity-40",
-                mode === "tree" && "bg-white shadow-sm dark:bg-zinc-700",
+                treeVisible && "bg-white shadow-sm dark:bg-zinc-700",
               )}
-              aria-pressed={mode === "tree"}
+              aria-pressed={treeVisible}
               disabled={!canFormat || template}
               title={template ? "请在解析后的请求体中查看结构" : undefined}
               onClick={() => setMode("tree")}
@@ -171,7 +198,7 @@ export function JsonWorkbench({
             </button>
           )}
         </div>
-        {language === "json" && (
+        {language === "json" && !responseView && (
           <>
             <Button
               type="button"
@@ -216,7 +243,7 @@ export function JsonWorkbench({
           aria-label={`复制${label}`}
           title="复制原始内容"
         >
-          {copied ? (
+          {copiedSource === value ? (
             <Check className="size-3.5" />
           ) : (
             <Copy className="size-3.5" />
@@ -249,7 +276,7 @@ export function JsonWorkbench({
           )}
         </Button>
       </div>
-      {mode === "tree" && !template && document.root && !document.issue ? (
+      {treeVisible && document.root ? (
         <JsonTree root={document.root} source={value} onCopy={copy} />
       ) : (
         <CodeEditor
@@ -260,7 +287,7 @@ export function JsonWorkbench({
               : (next) => {
                   if (!disabled) {
                     setNotice(null);
-                    setCopied(false);
+                    setCopiedSource(null);
                     onChange?.(next);
                   }
                 }
@@ -271,6 +298,7 @@ export function JsonWorkbench({
           template={template}
           wrap={wrap}
           focusOffset={focusOffset}
+          sessionRef={editorSession}
         />
       )}
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-3 py-2 text-[11px] dark:border-zinc-700">
@@ -309,11 +337,11 @@ export function JsonWorkbench({
           </span>
         )}
         <span className="text-zinc-500">
-          {formatBytes(document.size)} · {value.split("\n").length} 行
+          {formatBytes(document.size)} · {lineCount} 行
         </span>
-        {notice && (
+        {notice?.source === value && (
           <span role="status" className="w-full text-zinc-500">
-            {notice}
+            {notice.message}
           </span>
         )}
       </div>

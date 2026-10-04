@@ -35,7 +35,6 @@ import {
 } from "@/lib/json-document";
 import {
   createRequestDraft,
-  readRequestAuth,
   draftFromRequest,
   extractPathParameters,
   prepareRequest,
@@ -90,13 +89,13 @@ interface TestPanelProps {
   onImportResponse: (response: SendRequestResult) => void;
 }
 const emptyEnvironments: Environment[] = [];
+const removedEnvironmentNotice = "所选环境已移除，已切换到默认环境并清空自动认证";
 
 export function TestPanel(props: TestPanelProps) {
   const {
     projectId,
     endpointId,
     projectBaseUrl,
-    endpointAuth,
     endpointServerUrl,
     endpointVariables,
     environments = emptyEnvironments,
@@ -108,21 +107,38 @@ export function TestPanel(props: TestPanelProps) {
   const [initialDefaults] = useState(() => createRequestDraft(props));
   const [draft, setDraft] = useState<RequestDraft>(initialDefaults);
   const previousDefaults = useRef(initialDefaults);
-  const documentSignature = JSON.stringify({
-    method: props.method,
-    path: props.path,
-    params: props.params,
-    globalParams: props.globalParams,
-    globalHeaders: props.globalHeaders,
-    endpointHeaders: props.endpointHeaders,
-    endpointAuth: props.endpointAuth,
-    bodyExample: props.bodyExample,
-    bodyContentType: props.bodyContentType,
-  });
+  const authDocumentLinked = useRef(true);
+  const documentSignature = useMemo(
+    () =>
+      JSON.stringify({
+        method: props.method,
+        path: props.path,
+        params: props.params,
+        globalParams: props.globalParams,
+        globalHeaders: props.globalHeaders,
+        endpointHeaders: props.endpointHeaders,
+        endpointAuth: props.endpointAuth,
+        bodyExample: props.bodyExample,
+        bodyContentType: props.bodyContentType,
+      }),
+    [
+      props.method,
+      props.path,
+      props.params,
+      props.globalParams,
+      props.globalHeaders,
+      props.endpointHeaders,
+      props.endpointAuth,
+      props.bodyExample,
+      props.bodyContentType,
+    ],
+  );
   const previousSignature = useRef(documentSignature);
   const [selectedEnvironment, setSelectedEnvironment] = useState("project");
   const [tab, setTab] = useState("params");
   const [curlOpen, setCurlOpen] = useState(false);
+  const [requestPreviewOpen, setRequestPreviewOpen] = useState(false);
+  const [resolvedBodyOpen, setResolvedBodyOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [history, setHistory] = useState<RequestHistoryEntry[]>([]);
   const historyRef = useRef<RequestHistoryEntry[]>([]);
@@ -149,8 +165,15 @@ export function TestPanel(props: TestPanelProps) {
     userId && projectId
       ? `apixdoc.environment.v1:${userId}:${projectId}`
       : null;
-  const environmentSignature = JSON.stringify(
-    [...environments].sort((a, b) => a.name.localeCompare(b.name)),
+  const environmentScope = useRef<string | null | undefined>(undefined);
+  const environmentSignature = useMemo(
+    () =>
+      JSON.stringify(
+        environments
+          .map(({ name, isDefault }) => ({ name, isDefault }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      ),
+    [environments],
   );
   const environment = useMemo(
     () =>
@@ -201,19 +224,28 @@ export function TestPanel(props: TestPanelProps) {
       : defaultName
         ? `env:${defaultName}`
         : "project";
-    setDraft((previous) => ({
-      ...previous,
-      auth: readRequestAuth(endpointAuth),
-    }));
+    const valid = (value: string) =>
+      value === "project" ||
+      (value === "endpoint" && !!endpointServerUrl) ||
+      choices.some((choice) => `env:${choice.name}` === value);
+    // Restore remembered choices only when entering a project. A shared setting
+    // refresh must preserve the environment currently being edited or imported.
+    if (environmentScope.current === environmentStorageKey) {
+      if (!valid(selectedEnvironment)) {
+        setSelectedEnvironment(fallback);
+        authDocumentLinked.current = false;
+        setDraft((current) => ({ ...current, auth: { type: "none" } }));
+        setNotice(removedEnvironmentNotice);
+      }
+      return;
+    }
+    environmentScope.current = environmentStorageKey;
     try {
       const remembered = environmentStorageKey
         ? sessionStorage.getItem(environmentStorageKey)
         : null;
       setSelectedEnvironment(
-        remembered &&
-          (remembered === "project" ||
-            (remembered === "endpoint" && !!endpointServerUrl) ||
-            choices.some((choice) => `env:${choice.name}` === remembered))
+        remembered && valid(remembered)
           ? remembered
           : fallback,
       );
@@ -223,8 +255,8 @@ export function TestPanel(props: TestPanelProps) {
   }, [
     environmentStorageKey,
     environmentSignature,
-    endpointAuth,
     endpointServerUrl,
+    selectedEnvironment,
   ]);
 
   useEffect(() => {
@@ -233,9 +265,18 @@ export function TestPanel(props: TestPanelProps) {
     const after = createRequestDraft(JSON.parse(documentSignature));
     previousSignature.current = documentSignature;
     previousDefaults.current = after;
-    setDraft((current) => reconcileDocumentDraft(current, before, after));
+    setDraft((current) => {
+      const reconciled = reconcileDocumentDraft(current, before, after);
+      return current.documentLinked && authDocumentLinked.current
+        ? { ...reconciled, auth: after.auth }
+        : reconciled;
+    });
     if (draft.documentLinked)
-      setNotice("已同步文档默认配置，保留了你的临时修改");
+      setNotice((current) =>
+        current === removedEnvironmentNotice
+          ? current
+          : "已同步文档默认配置，保留了你的临时修改",
+      );
   }, [documentSignature, draft.documentLinked]);
 
   const prepared = useMemo(() => {
@@ -256,7 +297,15 @@ export function TestPanel(props: TestPanelProps) {
       return [];
     }
   }, [environment]);
+  const requestPreview = useMemo(
+    () =>
+      requestPreviewOpen && prepared.request
+        ? JSON.stringify(prepared.request, null, 2)
+        : "",
+    [requestPreviewOpen, prepared.request],
+  );
   const update = (patch: Partial<RequestDraft>) => {
+    if (patch.auth) authDocumentLinked.current = false;
     setDraft((previous) => ({ ...previous, ...patch }));
     setError(null);
     setNotice(null);
@@ -302,7 +351,11 @@ export function TestPanel(props: TestPanelProps) {
     setNotice(null);
     try {
       const response = await onSend({ ...request, signal: controller.signal });
-      if (activeScope.current !== scope) return;
+      if (
+        !mounted.current ||
+        requestRef.current !== controller ||
+        activeScope.current !== scope
+      ) return;
       if (controller.signal.aborted)
         throw new DOMException("请求已取消", "AbortError");
       const entry = createHistoryEntry(request, selectedName, { response });
@@ -310,7 +363,11 @@ export function TestPanel(props: TestPanelProps) {
       if (mounted.current)
         setOutcome({ ...entry, response, responseTruncated: false });
     } catch (issue) {
-      if (activeScope.current !== scope) return;
+      if (
+        !mounted.current ||
+        requestRef.current !== controller ||
+        activeScope.current !== scope
+      ) return;
       const message = controller.signal.aborted
         ? "请求已取消"
         : issue instanceof Error
@@ -325,8 +382,10 @@ export function TestPanel(props: TestPanelProps) {
         setOutcome(entry);
       }
     } finally {
-      if (requestRef.current === controller) requestRef.current = null;
-      if (mounted.current && activeScope.current === scope) setLoading(false);
+      if (requestRef.current === controller) {
+        requestRef.current = null;
+        if (mounted.current && activeScope.current === scope) setLoading(false);
+      }
     }
   };
   const copyCurl = async () => {
@@ -357,6 +416,10 @@ export function TestPanel(props: TestPanelProps) {
       !!response &&
       (isJsonContentType(response.headers["content-type"] || "") ||
         !!inspectJson(response.body).root),
+    [response],
+  );
+  const responseSize = useMemo(
+    () => (response ? new TextEncoder().encode(response.body).length : 0),
     [response],
   );
 
@@ -453,6 +516,7 @@ export function TestPanel(props: TestPanelProps) {
               aria-label="恢复文档配置"
               title="恢复文档配置"
               onClick={() => {
+                authDocumentLinked.current = true;
                 setDraft(createRequestDraft(props));
                 setNotice("已恢复文档配置");
                 setError(null);
@@ -641,18 +705,24 @@ export function TestPanel(props: TestPanelProps) {
               {draft.bodyMode === "raw" &&
                 bodyTemplate &&
                 prepared.request?.body !== undefined && (
-                  <details className="rounded-lg border border-zinc-200 dark:border-zinc-700">
+                  <details
+                    open={resolvedBodyOpen}
+                    onToggle={(event) => setResolvedBodyOpen(event.currentTarget.open)}
+                    className="rounded-lg border border-zinc-200 dark:border-zinc-700"
+                  >
                     <summary className="cursor-pointer px-3 py-2 text-xs text-zinc-500">
                       解析后的请求体
                     </summary>
-                    <JsonWorkbench
-                      label="解析后的请求体"
-                      value={prepared.request.body}
-                      readOnly
-                      language={
-                        isJsonContentType(draft.contentType) ? "json" : "text"
-                      }
-                    />
+                    {resolvedBodyOpen && (
+                      <JsonWorkbench
+                        label="解析后的请求体"
+                        value={prepared.request.body}
+                        readOnly
+                        language={
+                          isJsonContentType(draft.contentType) ? "json" : "text"
+                        }
+                      />
+                    )}
                   </details>
                 )}
               {draft.bodyMode === "urlencoded" && (
@@ -770,16 +840,22 @@ export function TestPanel(props: TestPanelProps) {
         </p>
       )}
       {prepared.request && (
-        <details className="rounded-lg border border-zinc-200 dark:border-zinc-700">
+        <details
+          open={requestPreviewOpen}
+          onToggle={(event) => setRequestPreviewOpen(event.currentTarget.open)}
+          className="rounded-lg border border-zinc-200 dark:border-zinc-700"
+        >
           <summary className="cursor-pointer px-3 py-2 text-xs text-zinc-500">
             <Terminal className="mr-2 inline size-3.5" />
             查看实际请求
           </summary>
-          <JsonWorkbench
-            label="实际请求"
-            value={JSON.stringify(prepared.request, null, 2)}
-            readOnly
-          />
+          {requestPreviewOpen && (
+            <JsonWorkbench
+              label="实际请求"
+              value={requestPreview}
+              readOnly
+            />
+          )}
         </details>
       )}
       {loading && (
@@ -801,7 +877,7 @@ export function TestPanel(props: TestPanelProps) {
               {response.duration} ms
             </span>
             <span className="text-xs text-zinc-500">
-              {formatBytes(new TextEncoder().encode(response.body).length)}
+              {formatBytes(responseSize)}
             </span>
             <span className="text-xs text-zinc-500">{outcome.environment}</span>
             <Button
@@ -827,6 +903,7 @@ export function TestPanel(props: TestPanelProps) {
           )}
           <JsonWorkbench
             label="响应体"
+            responseView
             value={response.body}
             readOnly
             language={responseIsJson ? "json" : "text"}
