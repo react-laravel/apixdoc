@@ -3,6 +3,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: "standalone",
+  outputFileTracingIncludes: {
+    "/*": [
+      "./node_modules/.prisma/client/**/*",
+      "./node_modules/pg/**/*",
+      "./prisma/migrations/**/*",
+    ],
+  },
   turbopack: {},
   webpack: (config) => {
     config.resolve ??= {};

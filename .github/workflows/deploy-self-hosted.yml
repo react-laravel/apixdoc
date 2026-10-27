@@ -1,50 +1,62 @@
-name: Deploy (Self-hosted)
+name: Build and deploy ApiXDoc to B
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      validate_only:
+        description: Build and test without uploading or activating a release
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 concurrency:
-  group: deploy-production
+  group: deploy-apixdoc-b
   cancel-in-progress: false
 
 jobs:
-  deploy:
-    runs-on: self-hosted
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      # Build placeholders only; B keeps the actual runtime configuration.
+      DATABASE_URL: postgresql://build:build@127.0.0.1:9/apixdoc?schema=public
+      AUTH_SECRET: build-only-placeholder-never-a-runtime-secret
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Ensure Deployer phar present
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+          clean: true
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.16.0'
+          cache: npm
+      - name: Install the unchanged npm lock on the hosted runner
+        run: npm ci
+      - name: Generate Prisma client without connecting to a database
+        run: ./node_modules/.bin/prisma generate
+      - name: Check deployment boundaries and application
         run: |
-          set -euo pipefail
-          DEP_BIN="$HOME/.deployer/dep.phar"
-          DEP_VERSION="7.5.7"
-          if [ ! -f "$DEP_BIN" ]; then
-            mkdir -p "$(dirname "$DEP_BIN")"
-            curl -fsSL "https://deployer.org/releases/v${DEP_VERSION}/deployer.phar" -o "$DEP_BIN"
-            chmod +x "$DEP_BIN"
-          fi
-          php "$DEP_BIN" --version
-
-      - name: Deploy production
-        env:
-          DEPLOY_PATH: /var/www/apixdoc
-          PM2_APP: apixdoc-nextjs
-          PORT: "3002"
-          VERIFY_BASE_URL: https://apixdoc.dogeow.com
-          RUNNER_TRACKING_ID: ""
-        run: php "$HOME/.deployer/dep.phar" deploy production -v
-
-      - name: Notify dogeow deployment
-        if: success()
-        env:
-          APP_NAME: apixdoc
-          APP_URL: https://apixdoc.dogeow.com
+          python3 -m unittest discover -s tests/deployment -p 'test_*.py'
+          node --test tests/deployment/ledger.contract.cjs
+          npx tsc --noEmit
+          npm run lint
+          npm test
+          npm run build
+      - name: Package the standalone runtime and migration metadata
         run: |
-          set -euo pipefail
-          php /var/www/dogeow-api/current/artisan notify:deploy "$APP_NAME" \
-            --title="部署完成：$APP_NAME" \
-            --body="react-laravel/$APP_NAME 已通过 GitHub self-hosted runner 部署成功（${GITHUB_SHA::7}）" \
-            --url="$APP_URL" \
-            --no-interaction || true
+          node scripts/prepare-apixdoc-runtime.mjs
+          python3 scripts/package-apixdoc.py "$RUNNER_TEMP/apixdoc-$GITHUB_SHA.tar.gz" "$GITHUB_SHA"
+      - name: Upload, validate and publish the single ApiXDoc scope
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || inputs.validate_only == false)
+        env:
+          B_APIXDOC_DEPLOY_SSH_KEY: ${{ secrets.B_APIXDOC_DEPLOY_SSH_KEY }}
+          B_APIXDOC_DEPLOY_KNOWN_HOSTS: ${{ secrets.B_APIXDOC_DEPLOY_KNOWN_HOSTS }}
+        run: bash scripts/deploy-apixdoc-to-b.sh "$RUNNER_TEMP/apixdoc-$GITHUB_SHA.tar.gz" "$GITHUB_SHA"
+      - name: Remove the transient runtime archive
+        if: always()
+        run: rm -f "$RUNNER_TEMP/apixdoc-$GITHUB_SHA.tar.gz"
